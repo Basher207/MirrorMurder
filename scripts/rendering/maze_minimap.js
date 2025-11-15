@@ -6,6 +6,7 @@ class MazeMinimap {
         this.container = containerElement;
         this.canvas = null;
         this.grid = null;
+        this.gameState = null;
         this.needsRedraw = true;
         
         this.initCanvas();
@@ -25,8 +26,8 @@ class MazeMinimap {
         `;
         this.container.appendChild(this.canvas);
         
-        // Set initial size
-        this.resize(250, 250);
+        // Set initial size - increased from 250x250
+        this.resize(400, 400);
     }
     
     resize(width, height) {
@@ -45,6 +46,15 @@ class MazeMinimap {
         this.grid = grid;
         this.needsRedraw = true;
         console.log('Minimap: Grid set with', grid.getRowCount(), 'rows');
+    }
+
+    /**
+     * Set the game state to access player and enemy positions
+     * @param {GameState} gameState - The game state instance
+     */
+    setGameState(gameState) {
+        this.gameState = gameState;
+        this.needsRedraw = true;
     }
     
     /**
@@ -78,22 +88,45 @@ class MazeMinimap {
         }
 
         // Calculate triangle size based on canvas dimensions with padding
-        const padding = 10;
+        const padding = 20;
         const drawWidth = width - (padding * 2);
         const drawHeight = height - (padding * 2);
         
         const maxTrianglesPerRow = Math.max(...Array.from({length: numRows}, (_, i) => this.grid.getRowLength(i)));
         
         // For triangular tessellation:
-        // - Each triangle has width of base
-        // - Height is sqrt(3)/2 * base for equilateral triangles
-        // - Rows are offset by half the height
-        const triangleWidth = drawWidth / maxTrianglesPerRow;
-        const triangleHeight = (Math.sqrt(3) / 2) * triangleWidth;
-        const rowHeight = triangleHeight; // Each row takes full height
+        // Each column is half a triangle width, so total width = (maxTriangles / 2) * triangleWidth
+        // Calculate based on both width and height constraints
+        const triangleWidthFromWidth = (drawWidth * 2) / maxTrianglesPerRow;
+        const triangleHeightFromWidth = (Math.sqrt(3) / 2) * triangleWidthFromWidth;
+        const totalHeightFromWidth = numRows * triangleHeightFromWidth;
+        
+        // If height-constrained, calculate from height
+        const triangleHeightFromHeight = drawHeight / numRows;
+        const triangleWidthFromHeight = triangleHeightFromHeight / (Math.sqrt(3) / 2);
+        
+        // Use whichever gives us the largest fit
+        let triangleWidth, triangleHeight;
+        if (totalHeightFromWidth <= drawHeight) {
+            // Width-constrained
+            triangleWidth = triangleWidthFromWidth;
+            triangleHeight = triangleHeightFromWidth;
+        } else {
+            // Height-constrained
+            triangleWidth = triangleWidthFromHeight;
+            triangleHeight = triangleHeightFromHeight;
+        }
+        
+        const rowHeight = triangleHeight;
 
         // Store scale for player position calculation
         const worldToScreenScale = triangleWidth / 2.0; // World units to screen pixels
+
+        // Calculate offset to center the grid
+        const totalWidth = (maxTrianglesPerRow / 2) * triangleWidth;
+        const totalHeight = numRows * rowHeight;
+        const offsetX = padding + (drawWidth - totalWidth) / 2;
+        const offsetY = padding + (drawHeight - totalHeight) / 2;
 
         // Draw each triangle
         for (let row = 0; row < numRows; row++) {
@@ -104,13 +137,18 @@ class MazeMinimap {
                 if (!triangle) continue;
 
                 // X position - each triangle takes half the width space
-                const x = padding + (col * triangleWidth / 2);
+                const x = offsetX + (col * triangleWidth / 2);
                 
                 // Y position - each row is offset by the triangle height
-                const y = padding + (row * rowHeight);
+                const y = offsetY + (row * rowHeight);
 
                 this.drawTriangle(ctx, triangle, x, y, triangleWidth, triangleHeight);
             }
+        }
+
+        // Draw character markers
+        if (this.gameState) {
+            this.drawCharacterMarkers(ctx, offsetX, offsetY, triangleWidth, triangleHeight, rowHeight);
         }
         
         // Draw player position if available
@@ -208,6 +246,147 @@ class MazeMinimap {
         
         ctx.stroke();
     }
+
+    /**
+     * Draw player and enemy markers
+     */
+    drawCharacterMarkers(ctx, offsetX, offsetY, triangleWidth, triangleHeight, rowHeight) {
+        const player = this.gameState.getPlayer();
+        const enemy = this.gameState.getEnemy();
+
+        // Draw player (blue dot with arrow)
+        if (player) {
+            const playerX = offsetX + (player.col * triangleWidth / 2) + triangleWidth / 2;
+            const playerY = offsetY + (player.row * rowHeight) + triangleHeight / 2;
+            
+            // Draw the dot
+            ctx.fillStyle = '#0088ff';
+            ctx.beginPath();
+            ctx.arc(playerX, playerY, 6, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw a border around the dot
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            
+            // Draw orientation arrow
+            const playerTriangle = this.grid.getTriangle(player.row, player.col);
+            if (playerTriangle) {
+                this.drawOrientationArrow(ctx, playerX, playerY, player.orientation, playerTriangle.pointsUp, '#0088ff', triangleWidth, triangleHeight);
+            }
+        }
+
+        // Draw enemy (red square with arrow)
+        if (enemy) {
+            const enemyX = offsetX + (enemy.col * triangleWidth / 2) + triangleWidth / 2;
+            const enemyY = offsetY + (enemy.row * rowHeight) + triangleHeight / 2;
+            
+            const squareSize = 10;
+            // Draw the square
+            ctx.fillStyle = '#ff0000';
+            ctx.fillRect(
+                enemyX - squareSize / 2,
+                enemyY - squareSize / 2,
+                squareSize,
+                squareSize
+            );
+            
+            // Draw a border around the square
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(
+                enemyX - squareSize / 2,
+                enemyY - squareSize / 2,
+                squareSize,
+                squareSize
+            );
+            
+            // Draw orientation arrow
+            const enemyTriangle = this.grid.getTriangle(enemy.row, enemy.col);
+            if (enemyTriangle) {
+                this.drawOrientationArrow(ctx, enemyX, enemyY, enemy.orientation, enemyTriangle.pointsUp, '#ff0000', triangleWidth, triangleHeight);
+            }
+        }
+    }
+
+    /**
+     * Draw an arrow showing which direction a character is facing
+     * @param {CanvasRenderingContext2D} ctx - Canvas context
+     * @param {number} x - Character center X
+     * @param {number} y - Character center Y
+     * @param {string} orientation - 'left', 'right', or 'third'
+     * @param {boolean} pointsUp - Whether the triangle points up
+     * @param {string} color - Arrow color
+     * @param {number} triangleWidth - Width of the triangle
+     * @param {number} triangleHeight - Height of the triangle
+     */
+    drawOrientationArrow(ctx, x, y, orientation, pointsUp, color, triangleWidth, triangleHeight) {
+        const arrowLength = Math.min(triangleWidth, triangleHeight) * 0.25;
+        const arrowHeadSize = arrowLength * 0.4;
+        
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = 2;
+        
+        let angle = 0;
+        
+        // Calculate arrow angle based on orientation and triangle type
+        if (pointsUp) {
+            // Up-pointing triangle
+            switch (orientation) {
+                case 'left':
+                    angle = Math.PI; // Left (180 degrees)
+                    break;
+                case 'right':
+                    angle = 0; // Right (0 degrees)
+                    break;
+                case 'third': // Bottom
+                    angle = Math.PI / 2; // Down (90 degrees)
+                    break;
+            }
+        } else {
+            // Down-pointing triangle
+            switch (orientation) {
+                case 'left':
+                    angle = Math.PI; // Left (180 degrees)
+                    break;
+                case 'right':
+                    angle = 0; // Right (0 degrees)
+                    break;
+                case 'third': // Top
+                    angle = Math.PI * 3 / 2; // Up (270 degrees)
+                    break;
+            }
+        }
+        
+        // Calculate arrow end point
+        const endX = x + Math.cos(angle) * arrowLength;
+        const endY = y + Math.sin(angle) * arrowLength;
+        
+        // Draw arrow line
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+        
+        // Draw arrowhead
+        const headAngle1 = angle - Math.PI * 5 / 6;
+        const headAngle2 = angle + Math.PI * 5 / 6;
+        
+        ctx.beginPath();
+        ctx.moveTo(endX, endY);
+        ctx.lineTo(
+            endX + Math.cos(headAngle1) * arrowHeadSize,
+            endY + Math.sin(headAngle1) * arrowHeadSize
+        );
+        ctx.lineTo(
+            endX + Math.cos(headAngle2) * arrowHeadSize,
+            endY + Math.sin(headAngle2) * arrowHeadSize
+        );
+        ctx.closePath();
+        ctx.fill();
+    }
     
     /**
      * Draw the player position and direction
@@ -251,8 +430,8 @@ class MazeMinimap {
     }
     
     handleResize(width, height) {
-        // Keep minimap at a reasonable fixed size
-        const minimapSize = Math.min(Math.min(width, height) * 0.3, 300);
+        // Keep minimap at a reasonable fixed size - increased max size
+        const minimapSize = Math.min(Math.min(width, height) * 0.4, 500);
         this.resize(minimapSize, minimapSize);
     }
     

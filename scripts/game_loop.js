@@ -1,6 +1,8 @@
 // Main Game Loop Manager
 // Coordinates all game systems and rendering
 
+import gameState from './player_logic/game_state.js';
+
 class GameLoop {
     constructor() {
         this.isRunning = false;
@@ -13,13 +15,7 @@ class GameLoop {
         this.movement = null;
         
         // Game state
-        this.gameState = {
-            // Future game state will go here
-            // player: null,
-            // enemies: [],
-            // items: [],
-            // etc.
-        };
+        this.gameState = gameState;
         
         // Bind the loop
         this.loop = this.loop.bind(this);

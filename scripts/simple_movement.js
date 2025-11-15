@@ -2,6 +2,8 @@
 // Handles WASD movement and mouse look
 
 import * as THREE from 'three';
+import gameState from './player_logic/game_state.js';
+import { TRIANGLE_SIZE, TRIANGLE_HEIGHT } from './maze.js';
 
 class SimpleMovement {
     constructor() {
@@ -31,6 +33,9 @@ class SimpleMovement {
         
         // Reference to scene renderer (set by game loop)
         this.sceneRenderer = null;
+        
+        // Reference to grid (for coordinate conversion)
+        this.grid = null;
         
         // Setup input listeners
         this.setupInputListeners();
@@ -102,6 +107,33 @@ class SimpleMovement {
         this.pitch = sceneRenderer.playerPitch;
     }
     
+    // Set reference to grid
+    setGrid(grid) {
+        this.grid = grid;
+    }
+    
+    // Convert world position to grid coordinates
+    worldToGrid(worldPos) {
+        if (!this.grid) return { row: 0, col: 0 };
+        
+        // Get grid dimensions
+        const rowCount = this.grid.getRowCount();
+        const colCount = this.grid.getColCount();
+        
+        // Calculate row (z-axis)
+        const row = Math.floor((worldPos.z / TRIANGLE_HEIGHT) * 2);
+        
+        // Calculate column (x-axis) - accounting for row offset
+        const rowOffset = (row % 2 === 1) ? TRIANGLE_SIZE / 2 : 0;
+        const col = Math.floor((worldPos.x - rowOffset) / TRIANGLE_SIZE);
+        
+        // Clamp to grid bounds
+        return {
+            row: Math.max(0, Math.min(rowCount - 1, row)),
+            col: Math.max(0, Math.min(colCount - 1, col))
+        };
+    }
+    
     // Update movement (called every frame)
     update(deltaTime) {
         if (!this.mouseLocked) return;
@@ -137,6 +169,21 @@ class SimpleMovement {
         // Update scene renderer if available
         if (this.sceneRenderer) {
             this.sceneRenderer.updatePlayer(this.position, this.yaw, this.pitch);
+        }
+        
+        // Update game state with grid position
+        if (this.grid) {
+            const gridPos = this.worldToGrid(this.position);
+            const player = gameState.getPlayer();
+            player.row = gridPos.row;
+            player.col = gridPos.col;
+            
+            // Update facing direction (convert yaw to grid direction)
+            // 0° = right, 60° = up-right, 120° = up-left, 180° = left, etc.
+            const normalizedYaw = ((this.yaw % (2 * Math.PI)) + (2 * Math.PI)) % (2 * Math.PI);
+            const directionIndex = Math.round(normalizedYaw / (Math.PI / 3)) % 6;
+            const directions = ['right', 'up-right', 'up-left', 'left', 'down-left', 'down-right'];
+            player.facing = directions[directionIndex];
         }
     }
     
