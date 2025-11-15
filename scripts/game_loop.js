@@ -70,37 +70,25 @@ class GameLoop {
     
     // Update all game systems
     update(deltaTime) {
-        // Update movement (player input)
+        // Update game logic
         if (this.movement) {
             this.movement.update(deltaTime);
         }
         
-        // Future game logic updates will go here
-        // - AI, physics, etc.
-        // - Collision detection
-        // - Game state updates
-        
-        // Update scene renderer
-        if (this.sceneRenderer) {
-            this.sceneRenderer.update(deltaTime);
-        }
-        
-        // Update UI with current game state
+        // Update UI
         if (this.uiOverlay) {
-            this.uiOverlay.update(deltaTime, this.gameState);
+            this.uiOverlay.update(deltaTime, {});
         }
     }
     
     // Render all visual elements
     render() {
-        // ====== GAME RENDERING ======
-        // Render the main 3D scene using raycast shader
+        // Render 3D scene
         if (this.sceneRenderer) {
             this.sceneRenderer.render();
         }
         
-        // ====== UI OVERLAY RENDERING (Always on top) ======
-        // Render UI elements last so they appear on top of everything
+        // Render UI overlay on top
         if (this.uiOverlay) {
             this.uiOverlay.render();
         }
@@ -115,6 +103,11 @@ class GameLoop {
         if (this.uiOverlay) {
             this.uiOverlay.handleResize(width, height);
         }
+    }
+    
+    setGrid(grid) {
+        this.grid = grid;
+        console.log('GameLoop: Grid set');
     }
 }
 

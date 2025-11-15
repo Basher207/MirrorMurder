@@ -10,13 +10,19 @@ class UIOverlay {
         // UI Components
         this.minimap = null;
         
+        // Grid reference
+        this.grid = null;
+        
         // Initialize UI components
         this.initializeComponents();
+        
+        console.log('UIOverlay: Initialized');
     }
     
     initializeComponents() {
         // Create minimap
         this.minimap = new MazeMinimap(this.container);
+        console.log('UIOverlay: Minimap created');
         
         // Future UI components will be initialized here
         // - Health bars
@@ -24,6 +30,18 @@ class UIOverlay {
         // - Objectives
         // - Crosshair
         // etc.
+    }
+    
+    /**
+     * Set the grid to be visualized
+     * @param {TriangularGrid} grid - The grid system to visualize
+     */
+    setGrid(grid) {
+        this.grid = grid;
+        console.log('UIOverlay: Setting grid with', grid.getRowCount(), 'rows');
+        if (this.minimap) {
+            this.minimap.setGrid(grid);
+        }
     }
     
     // Update UI state (called every frame)
