@@ -390,8 +390,8 @@ class TriangularGrid {
      * Convert the grid to maze.js bitmask format
      * Returns a 2D array where each cell is a bitmask of walls:
      * Bit 0 (1): third edge has mirror
-     * Bit 1 (2): left edge has mirror
-     * Bit 2 (4): right edge has mirror
+     * Bit 1 (2): right edge has mirror
+     * Bit 2 (4): left edge has mirror
      * @returns {Array<Array<number>>} 2D array of wall bitmasks
      */
     toMazeBitmask() {
@@ -408,16 +408,23 @@ class TriangularGrid {
                 
                 // Map grid sides to maze.js edge bits
                 // Grid format: left|right|third sides with 'empty' or 'mirror'
-                // Maze format: bit 0 = third, bit 1 = left, bit 2 = right
+                // Maze format (as used by the raycast shader):
+                //   edge 0 = "third" side
+                //   edge 1 = right side
+                //   edge 2 = left side
+                // So we map:
+                //   third -> bit 0 (1)
+                //   right -> bit 1 (2)
+                //   left  -> bit 2 (4)
                 
                 if (triangle.getSideState('third') === SideType.MIRROR) {
                     bitmask |= 1;  // Bit 0
                 }
                 if (triangle.getSideState('left') === SideType.MIRROR) {
-                    bitmask |= 2;  // Bit 1
+                    bitmask |= 4;  // Bit 2
                 }
                 if (triangle.getSideState('right') === SideType.MIRROR) {
-                    bitmask |= 4;  // Bit 2
+                    bitmask |= 2;  // Bit 1
                 }
                 
                 rowBitmasks.push(bitmask);

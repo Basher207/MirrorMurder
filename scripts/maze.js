@@ -6,7 +6,7 @@
 // - Edge indices are consistent with triangle orientation for easy shader logic
 
 // Triangle size constants (world space units)
-const TRIANGLE_SIZE = 2.0;
+const TRIANGLE_SIZE = 1.0;
 const TRIANGLE_HEIGHT = Math.sqrt(3) * TRIANGLE_SIZE / 2;
 
 // Edge indices for walls (relative to triangle orientation)

@@ -9,6 +9,7 @@ import {
     TRIANGLE_HEIGHT,
     encodeToTexture 
 } from '../maze.js';
+import { PlayerAnimation } from './player.js';
 
 class SceneRenderer {
     constructor(canvas) {
@@ -49,10 +50,12 @@ class SceneRenderer {
         // Create maze texture (will use fallback until grid is set)
         this.mazeTexture = this.createMazeTexture();
         
-        // Load player textures (front and back)
-        this.playerTexture = null;
+        // Create player animation system
+        this.playerAnimation = new PlayerAnimation();
+        
+        // Load player back texture
         this.playerBackTexture = null;
-        this.loadPlayerTextures();
+        this.loadPlayerBackTexture();
         
         // Load mirror texture
         this.mirrorTexture = null;
@@ -173,31 +176,8 @@ class SceneRenderer {
         };
     }
     
-    loadPlayerTextures() {
+    loadPlayerBackTexture() {
         const loader = new THREE.TextureLoader();
-        
-        // Load front texture (player.png)
-        loader.load(
-            './assets/player.png',
-            (texture) => {
-                texture.minFilter = THREE.LinearFilter;
-                texture.magFilter = THREE.LinearFilter;
-                texture.wrapS = THREE.ClampToEdgeWrapping;
-                texture.wrapT = THREE.ClampToEdgeWrapping;
-                this.playerTexture = texture;
-                
-                // Update uniform if shader is already loaded
-                if (this.fullscreenQuad) {
-                    this.fullscreenQuad.material.uniforms.uPlayerTexture.value = texture;
-                }
-                
-                console.log('✅ Player front texture loaded');
-            },
-            undefined,
-            (error) => {
-                console.error('❌ Failed to load player front texture:', error);
-            }
-        );
         
         // Load back texture (player_back.png)
         loader.load(
@@ -305,7 +285,7 @@ class SceneRenderer {
         const material = new THREE.ShaderMaterial({
             uniforms: {
                 uMazeTexture: { value: this.mazeTexture },
-                uPlayerTexture: { value: this.playerTexture },
+                uPlayerTexture: { value: this.playerAnimation.getCurrentFrame() },
                 uPlayerBackTexture: { value: this.playerBackTexture },
                 uMirrorTexture: { value: this.mirrorTexture },
                 uFloorTexture: { value: this.floorTexture },
@@ -349,11 +329,20 @@ class SceneRenderer {
     update(deltaTime) {
         if (!this.isReady) return;
         
+        // Update player animation
+        this.playerAnimation.update(deltaTime);
+        
         const uniforms = this.fullscreenQuad.material.uniforms;
         uniforms.uPlayerPos.value.copy(this.playerPos);
         uniforms.uPlayerYaw.value = this.playerYaw;
         uniforms.uPlayerPitch.value = this.playerPitch;
         uniforms.uTime.value += deltaTime;
+        
+        // Update player texture with current animation frame
+        const currentFrame = this.playerAnimation.getCurrentFrame();
+        if (currentFrame) {
+            uniforms.uPlayerTexture.value = currentFrame;
+        }
     }
     
     // Render the scene

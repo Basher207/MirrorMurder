@@ -20,10 +20,10 @@ varying vec2 vUv;
 // ================================================================
 
 const float FLOOR_Y = 0.0;
-const float CEILING_Y = 5.8;
+const float CEILING_Y = 1.8;
 const float MAX_DIST = 100.0;
 const float EPSILON = 0.001;
-const int MAX_BOUNCES = 8;
+const int MAX_BOUNCES = 20;
 const float PLAYER_QUAD_WIDTH = 0.6;
 const float PLAYER_QUAD_HEIGHT = 1.05;
 const float PLAYER_QUAD_Y_OFFSET = 0.525; // Center height of quad above floor
@@ -449,7 +449,7 @@ vec3 castRay(vec3 origin, vec3 dir) {
     vec3 reflectivity = vec3(1.0);
     
     // Mirror tint - slightly cyan/blue to indicate mirror surfaces (very subtle)
-    vec3 mirrorTint = vec3(0.9, 0.9, 0.9);
+    vec3 mirrorTint = vec3(0.8, 0.8, 0.8);
     
     for (int bounce = 0; bounce <= MAX_BOUNCES; bounce++) {
         float closestT = MAX_DIST;

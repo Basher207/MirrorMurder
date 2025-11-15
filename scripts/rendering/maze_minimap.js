@@ -1,6 +1,8 @@
 // Maze Minimap
 // Renders a 2D top-down view of the maze in the corner of the screen
 
+import { TRIANGLE_SIZE, TRIANGLE_HEIGHT } from '../maze.js';
+
 class MazeMinimap {
     constructor(containerElement) {
         this.container = containerElement;
@@ -119,9 +121,6 @@ class MazeMinimap {
         
         const rowHeight = triangleHeight;
 
-        // Store scale for player position calculation
-        const worldToScreenScale = triangleWidth / 2.0; // World units to screen pixels
-
         // Calculate offset to center the grid
         const totalWidth = (maxTrianglesPerRow / 2) * triangleWidth;
         const totalHeight = numRows * rowHeight;
@@ -153,7 +152,15 @@ class MazeMinimap {
         
         // Draw player position if available
         if (playerPos) {
-            this.drawPlayer(ctx, playerPos, playerYaw, padding, worldToScreenScale, triangleHeight);
+            this.drawPlayer(
+                ctx,
+                playerPos,
+                playerYaw,
+                offsetX,
+                offsetY,
+                triangleWidth,
+                triangleHeight
+            );
         }
     }
 
@@ -391,12 +398,24 @@ class MazeMinimap {
     /**
      * Draw the player position and direction
      */
-    drawPlayer(ctx, playerPos, playerYaw, padding, worldToScreenScale, triangleHeight) {
-        // Convert world position to screen position
-        // World coordinates: x and z
-        // Screen coordinates: based on triangular grid layout
-        const screenX = padding + (playerPos.x * worldToScreenScale);
-        const screenY = padding + (playerPos.z / (Math.sqrt(3) / 2) * worldToScreenScale);
+    drawPlayer(ctx, playerPos, playerYaw, offsetX, offsetY, triangleWidth, triangleHeight) {
+        // Convert world position to screen position using the same world scale
+        // used by the raycast shader / maze.js:
+        //  - X advances by TRIANGLE_SIZE * 0.5 per column
+        //  - Z advances by TRIANGLE_HEIGHT per row
+        //
+        // The grid drawing uses:
+        //  totalWidth  = (maxCols / 2) * triangleWidth
+        //  totalHeight = numRows * triangleHeight
+        //
+        // so the consistent world->screen scaling is:
+        //  scaleX = triangleWidth  / TRIANGLE_SIZE
+        //  scaleY = triangleHeight / TRIANGLE_HEIGHT
+        const scaleX = triangleWidth / TRIANGLE_SIZE;
+        const scaleY = triangleHeight / TRIANGLE_HEIGHT;
+
+        const screenX = offsetX + (playerPos.x * scaleX);
+        const screenY = offsetY + (playerPos.z * scaleY);
         
         // Draw player circle
         ctx.fillStyle = '#ff00ff'; // Magenta for player
