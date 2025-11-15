@@ -372,6 +372,14 @@ class TriangularGrid {
     }
 
     /**
+     * Get the maximum number of columns across all rows
+     */
+    getColCount() {
+        if (this.rows.length === 0) return 0;
+        return Math.max(...this.rows.map(row => row.length));
+    }
+
+    /**
      * Get the number of triangles in a specific row
      */
     getRowLength(rowIndex) {
@@ -419,7 +427,10 @@ class TriangularGrid {
         }
         
         console.log('   └─ Converted to', bitmaskData.length, 'rows x', bitmaskData[0]?.length, 'cols');
-        console.log('   └─ Sample row 0:', bitmaskData[0]);
+        console.log('   └─ Full bitmask data:');
+        bitmaskData.forEach((row, index) => {
+            console.log(`      Row ${index}:`, row);
+        });
         
         return bitmaskData;
     }

@@ -89,6 +89,7 @@ e|m|e e|e|e e|e|m e|e|e e|e|e m|e|e
         // uiOverlay.setMovementSystem(movement);
         const movement = new SimpleMovement();
         movement.setSceneRenderer(sceneRenderer);
+        movement.setGrid(grid);
 
         // Set the grid in the scene renderer (generates maze texture)
         sceneRenderer.setGrid(grid);
