@@ -95,7 +95,7 @@ class SceneRenderer {
         const centerZ = totalHeight / 2;
         
         // Set player position to center (Y is eye height)
-        this.playerPos.set(centerX, 0.65, centerZ);
+        this.playerPos.set(centerX + TRIANGLE_SIZE / 3, 0.65, centerZ + TRIANGLE_HEIGHT / 2);
         
         console.log(`   └─ Maze dimensions: ${mazeWidth} cols x ${mazeHeight} rows`);
         console.log(`   └─ World size: ${totalWidth.toFixed(2)} x ${totalHeight.toFixed(2)}`);
