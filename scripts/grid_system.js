@@ -377,6 +377,52 @@ class TriangularGrid {
     getRowLength(rowIndex) {
         return this.rows[rowIndex]?.length || 0;
     }
+    
+    /**
+     * Convert the grid to maze.js bitmask format
+     * Returns a 2D array where each cell is a bitmask of walls:
+     * Bit 0 (1): third edge has mirror
+     * Bit 1 (2): left edge has mirror
+     * Bit 2 (4): right edge has mirror
+     * @returns {Array<Array<number>>} 2D array of wall bitmasks
+     */
+    toMazeBitmask() {
+        const bitmaskData = [];
+        
+        console.log('🔄 Converting TriangularGrid to maze bitmask format...');
+        
+        for (let row = 0; row < this.rows.length; row++) {
+            const rowBitmasks = [];
+            
+            for (let col = 0; col < this.rows[row].length; col++) {
+                const triangle = this.getTriangle(row, col);
+                let bitmask = 0;
+                
+                // Map grid sides to maze.js edge bits
+                // Grid format: left|right|third sides with 'empty' or 'mirror'
+                // Maze format: bit 0 = third, bit 1 = left, bit 2 = right
+                
+                if (triangle.getSideState('third') === SideType.MIRROR) {
+                    bitmask |= 1;  // Bit 0
+                }
+                if (triangle.getSideState('left') === SideType.MIRROR) {
+                    bitmask |= 2;  // Bit 1
+                }
+                if (triangle.getSideState('right') === SideType.MIRROR) {
+                    bitmask |= 4;  // Bit 2
+                }
+                
+                rowBitmasks.push(bitmask);
+            }
+            
+            bitmaskData.push(rowBitmasks);
+        }
+        
+        console.log('   └─ Converted to', bitmaskData.length, 'rows x', bitmaskData[0]?.length, 'cols');
+        console.log('   └─ Sample row 0:', bitmaskData[0]);
+        
+        return bitmaskData;
+    }
 }
 
 // Export for ES6 modules

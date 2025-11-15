@@ -79,8 +79,9 @@ class GameLoop {
     
     // Render all visual elements
     render() {
-        // Render 3D scene
+        // Update and render 3D scene
         if (this.sceneRenderer) {
+            this.sceneRenderer.update(this.deltaTime);
             this.sceneRenderer.render();
         }
         

@@ -49,19 +49,26 @@
         import { GameLoop } from './scripts/game_loop.js';
         import { SceneRenderer } from './scripts/rendering/scene_render.js';
         import { UIOverlay } from './scripts/rendering/ui_overlay.js';
+        import { MovementSystem } from './scripts/player_logic/movement_system.js';
         import { SimpleMovement } from './scripts/simple_movement.js';
         import { TriangularGrid } from './scripts/grid_system.js';
+        import gameState from './scripts/player_logic/game_state.js';
 
         const canvas = document.getElementById('gameCanvas');
         const minimapContainer = document.getElementById('minimapContainer');
 
+//         // Create a default map
+//         const defaultMap = `
+// e|e|m e|e|e e|e|m e|e|e e|e|e e|e|e
+// e|m|e m|e|e e|m|e e|e|e e|m|e m|e|m
+// e|e|e e|e|m e|e|e e|e|e m|e|e e|e|e
+// m|e|e e|e|e e|m|e e|e|e e|e|m e|e|e
+// e|e|m e|e|e e|e|e m|e|e e|e|e e|m|e
+// e|e|e m|e|m e|e|e e|e|e e|m|e e|e|e
+// e|m|e e|e|e e|e|m e|e|e e|e|e m|e|e
+//         `.trim();
         // Create a default map
         const defaultMap = `
-e|e|m e|e|e e|e|m e|e|e e|e|e e|e|e
-e|m|e m|e|e e|m|e e|e|e e|m|e m|e|m
-e|e|e e|e|m e|e|e e|e|e m|e|e e|e|e
-m|e|e e|e|e e|m|e e|e|e e|e|m e|e|e
-e|e|m e|e|e e|e|e m|e|e e|e|e e|m|e
 e|e|e m|e|m e|e|e e|e|e e|m|e e|e|e
 e|m|e e|e|e e|e|m e|e|e e|e|e m|e|e
         `.trim();
@@ -70,17 +77,27 @@ e|m|e e|e|e e|e|m e|e|e e|e|e m|e|e
         const grid = new TriangularGrid();
         grid.initializeFromMap(defaultMap);
 
+        // Set the grid in game state (this will also set player/enemy positions)
+        gameState.setGrid(grid);
+
         // Initialize game systems
         const gameLoop = new GameLoop();
         const sceneRenderer = new SceneRenderer(canvas);
         const uiOverlay = new UIOverlay(minimapContainer);
+        // const movement = new MovementSystem();
+        // // Set the movement system in the UI overlay (IMPORTANT!)
+        // uiOverlay.setMovementSystem(movement);
         const movement = new SimpleMovement();
-
-        // Set the grid in the UI overlay
-        uiOverlay.setGrid(grid);
-
-        // Connect movement to scene renderer
         movement.setSceneRenderer(sceneRenderer);
+
+        // Set the grid in the scene renderer (generates maze texture)
+        sceneRenderer.setGrid(grid);
+        
+        // Set the grid in the UI overlay (for minimap)
+        uiOverlay.setGrid(grid);
+        
+        // Connect UI overlay to scene renderer for player position
+        uiOverlay.setSceneRenderer(sceneRenderer);
 
         // Register systems with game loop
         gameLoop.setSceneRenderer(sceneRenderer);
@@ -103,10 +120,16 @@ e|m|e e|e|e e|e|m e|e|e e|e|e m|e|e
         console.log('🎮 Mirror Murder - Game Started');
         console.log('🗺️  Grid System initialized');
         console.log(`   └─ ${grid.getRowCount()} rows loaded`);
+        console.log('👤 Player initialized at (0, 0) facing left');
+        console.log(`👹 Enemy initialized at (${gameState.getEnemy().row}, ${gameState.getEnemy().col})`);
         console.log('🎬 Scene Renderer initialized (Raycast Shader)');
         console.log('📊 UI Overlay initialized');
         console.log('   └─ Minimap: top-right corner (grid visualization active)');
-        console.log('🕹️  Movement: Click to lock mouse, WASD to move, Shift to sprint');
+        console.log('🕹️  Controls:');
+        console.log('   └─ W/↑: Enter MOVEMENT mode');
+        console.log('   └─ S/↓: Enter ROTATION mode');
+        console.log('   └─ A/←: Move forward-left OR rotate counter-clockwise');
+        console.log('   └─ D/→: Move forward-right OR rotate clockwise');
     </script>
 </body>
 </html>

@@ -1,4 +1,5 @@
 uniform sampler2D uMazeTexture;
+uniform sampler2D uPlayerTexture;
 uniform vec2 uMazeSize;
 uniform float uTriangleSize;
 uniform float uTriangleHeight;
@@ -19,6 +20,10 @@ const float FLOOR_Y = 0.0;
 const float CEILING_Y = 3.0;
 const float MAX_DIST = 100.0;
 const float EPSILON = 0.001;
+const int MAX_BOUNCES = 15;
+const float PLAYER_QUAD_WIDTH = 0.6;
+const float PLAYER_QUAD_HEIGHT = 1.2;
+const float PLAYER_QUAD_Y_OFFSET = 0.6; // Center height of quad above floor
 
 // ================================================================
 // Utility Functions
@@ -85,7 +90,7 @@ vec3 renderSky(vec3 rayDir) {
 
 // Get triangle grid coordinates from world position
 ivec2 worldToGrid(vec3 pos) {
-    int col = int(floor(pos.x / uTriangleSize));
+    int col = int(floor(pos.x / (uTriangleSize * 0.5)));
     int row = int(floor(pos.z / uTriangleHeight));
     return ivec2(col, row);
 }
@@ -108,19 +113,19 @@ vec4 getMazeCell(ivec2 gridPos) {
 
 // Get triangle vertices in world space
 void getTriangleVertices(ivec2 gridPos, out vec3 v0, out vec3 v1, out vec3 v2) {
-    float x = float(gridPos.x) * uTriangleSize;
+    float x = float(gridPos.x) * uTriangleSize * 0.5;
     float z = float(gridPos.y) * uTriangleHeight;
     
     if (isPointingUp(gridPos)) {
         // Pointing UP triangle
-        v0 = vec3(x, 0.0, z);                                        // Top
-        v1 = vec3(x - uTriangleSize * 0.5, 0.0, z + uTriangleHeight); // Bottom-left
-        v2 = vec3(x + uTriangleSize * 0.5, 0.0, z + uTriangleHeight); // Bottom-right
+        v0 = vec3(x + uTriangleSize * 0.5, 0.0, z);                  // Top apex
+        v1 = vec3(x, 0.0, z + uTriangleHeight);                      // Bottom-left
+        v2 = vec3(x + uTriangleSize, 0.0, z + uTriangleHeight);      // Bottom-right
     } else {
         // Pointing DOWN triangle
-        v0 = vec3(x, 0.0, z + uTriangleHeight);                      // Bottom
-        v1 = vec3(x - uTriangleSize * 0.5, 0.0, z);                  // Top-left
-        v2 = vec3(x + uTriangleSize * 0.5, 0.0, z);                  // Top-right
+        v0 = vec3(x + uTriangleSize * 0.5, 0.0, z + uTriangleHeight); // Bottom apex
+        v1 = vec3(x, 0.0, z);                                        // Top-left
+        v2 = vec3(x + uTriangleSize, 0.0, z);                        // Top-right
     }
 }
 
@@ -129,7 +134,7 @@ void getTriangleVertices(ivec2 gridPos, out vec3 v0, out vec3 v1, out vec3 v2) {
 // ================================================================
 
 // Ray-vertical wall intersection (wall is a vertical rectangle)
-bool rayWallIntersection(vec3 origin, vec3 dir, vec3 wallStart, vec3 wallEnd, float wallHeight, out float t, out vec3 hitPos) {
+bool rayWallIntersection(vec3 origin, vec3 dir, vec3 wallStart, vec3 wallEnd, float wallHeight, out float t, out vec3 hitPos, out vec3 normal) {
     // Wall is vertical from y=0 to y=wallHeight
     // Wall edge goes from wallStart (x,z) to wallEnd (x,z)
     
@@ -163,6 +168,66 @@ bool rayWallIntersection(vec3 origin, vec3 dir, vec3 wallStart, vec3 wallEnd, fl
     
     t = t2D;
     hitPos = origin + dir * t;
+    
+    // Calculate wall normal (perpendicular to wall edge in XZ plane, pointing outward)
+    vec2 wallDir = normalize(v2);
+    vec2 normal2D = vec2(-wallDir.y, wallDir.x);
+    // Make sure normal points toward the ray origin (outward from wall)
+    if (dot(normal2D, -rayDir) < 0.0) {
+        normal2D = -normal2D;
+    }
+    normal = normalize(vec3(normal2D.x, 0.0, normal2D.y));
+    
+    return true;
+}
+
+// ================================================================
+// Ray-Player Quad Intersection
+// ================================================================
+
+bool rayPlayerQuadIntersection(vec3 origin, vec3 dir, out float t, out vec3 hitPos, out vec2 uv) {
+    // Player quad is centered at player position, billboard-facing the ray
+    // This ensures the player always faces the viewer (mirror)
+    // Quad is vertical, with width PLAYER_QUAD_WIDTH and height PLAYER_QUAD_HEIGHT
+    
+    vec3 quadCenter = vec3(uPlayerPos.x, FLOOR_Y + PLAYER_QUAD_Y_OFFSET, uPlayerPos.z);
+    
+    // Billboard technique: quad normal points toward the ray origin (always face the camera)
+    vec3 toCamera = origin - quadCenter;
+    vec3 quadNormal = normalize(vec3(toCamera.x, 0.0, toCamera.z)); // Keep vertical (no Y tilt)
+    
+    // Right vector (perpendicular to normal in XZ plane)
+    vec3 quadRight = normalize(vec3(quadNormal.z, 0.0, -quadNormal.x));
+    
+    // Up vector
+    vec3 quadUp = vec3(0.0, 1.0, 0.0);
+    
+    // Ray-plane intersection
+    float denom = dot(dir, quadNormal);
+    if (abs(denom) < EPSILON) return false; // Ray parallel to quad
+    
+    t = dot(quadCenter - origin, quadNormal) / denom;
+    if (t < EPSILON) return false; // Quad behind camera
+    
+    // Calculate hit position
+    hitPos = origin + dir * t;
+    
+    // Check if hit is within quad bounds
+    vec3 localHit = hitPos - quadCenter;
+    float u = dot(localHit, quadRight);
+    float v = dot(localHit, quadUp);
+    
+    float halfWidth = PLAYER_QUAD_WIDTH * 0.5;
+    float halfHeight = PLAYER_QUAD_HEIGHT * 0.5;
+    
+    if (abs(u) > halfWidth || abs(v) > halfHeight) return false;
+    
+    // Convert to UV coordinates (0 to 1)
+    uv = vec2(
+        (u + halfWidth) / PLAYER_QUAD_WIDTH,
+        (v + halfHeight) / PLAYER_QUAD_HEIGHT
+    );
+    
     return true;
 }
 
@@ -234,80 +299,148 @@ vec3 renderFloor(vec3 hitPos) {
 // ================================================================
 
 vec3 castRay(vec3 origin, vec3 dir) {
-    float closestT = MAX_DIST;
-    vec3 closestHit = vec3(0.0);
-    int hitEdge = -1;
-    bool hitWall = false;
+    vec3 rayOrigin = origin;
+    vec3 rayDir = dir;
+    vec3 accumulatedColor = vec3(0.0);
+    vec3 reflectivity = vec3(1.0);
     
-    // Check all maze cells for wall intersections
-    // For a small maze (5x5), this is fast enough
-    for (int row = 0; row < int(uMazeSize.y); row++) {
-        for (int col = 0; col < int(uMazeSize.x); col++) {
-            ivec2 gridPos = ivec2(col, row);
-            
-            // Get maze cell data
-            vec4 cellData = getMazeCell(gridPos);
-            float wallBits = cellData.g * 7.0; // Convert back from normalized
-            int walls = int(wallBits + 0.5);
-            
-            // Skip if no walls
-            if (walls == 0) continue;
-            
-            // Get triangle vertices
-            vec3 v0, v1, v2;
-            getTriangleVertices(gridPos, v0, v1, v2);
-            
-            // Check each edge for walls
-            for (int edgeIdx = 0; edgeIdx < 3; edgeIdx++) {
-                // Check if this edge has a wall
-                int edgeBit = 1 << edgeIdx;
-                if ((walls & edgeBit) != 0) {
-                    vec3 edgeStart, edgeEnd;
-                    
-                    // Get edge vertices (edge N connects vertex (N+1) to vertex (N+2))
-                    if (edgeIdx == 0) {
-                        edgeStart = v1;
-                        edgeEnd = v2;
-                    } else if (edgeIdx == 1) {
-                        edgeStart = v2;
-                        edgeEnd = v0;
-                    } else {
-                        edgeStart = v0;
-                        edgeEnd = v1;
-                    }
-                    
-                    // Test ray against wall
-                    float t;
-                    vec3 hitPos;
-                    if (rayWallIntersection(origin, dir, edgeStart, edgeEnd, CEILING_Y, t, hitPos)) {
-                        if (t < closestT && t > EPSILON) {
-                            closestT = t;
-                            closestHit = hitPos;
-                            hitEdge = edgeIdx;
-                            hitWall = true;
+    // Mirror tint - slightly cyan/blue to indicate mirror surfaces
+    vec3 mirrorTint = vec3(0.85, 0.9, 1.0);
+    
+    for (int bounce = 0; bounce <= MAX_BOUNCES; bounce++) {
+        float closestT = MAX_DIST;
+        vec3 closestHit = vec3(0.0);
+        vec3 closestNormal = vec3(0.0);
+        int hitEdge = -1;
+        bool hitWall = false;
+        bool hitPlayer = false;
+        vec2 playerUV = vec2(0.0);
+        
+        // Check all maze cells for wall intersections
+        for (int row = 0; row < int(uMazeSize.y); row++) {
+            for (int col = 0; col < int(uMazeSize.x); col++) {
+                ivec2 gridPos = ivec2(col, row);
+                
+                // Get maze cell data
+                vec4 cellData = getMazeCell(gridPos);
+                float wallBits = cellData.g * 7.0; // Convert back from normalized
+                int walls = int(wallBits + 0.5);
+                
+                // Skip if no walls
+                if (walls == 0) continue;
+                
+                // Get triangle vertices
+                vec3 v0, v1, v2;
+                getTriangleVertices(gridPos, v0, v1, v2);
+                
+                // Check each edge for walls
+                for (int edgeIdx = 0; edgeIdx < 3; edgeIdx++) {
+                    // Check if this edge has a wall
+                    int edgeBit = 1 << edgeIdx;
+                    if ((walls & edgeBit) != 0) {
+                        vec3 edgeStart, edgeEnd;
+                        
+                        // Get edge vertices (edge N connects vertex (N+1) to vertex (N+2))
+                        if (edgeIdx == 0) {
+                            edgeStart = v1;
+                            edgeEnd = v2;
+                        } else if (edgeIdx == 1) {
+                            edgeStart = v2;
+                            edgeEnd = v0;
+                        } else {
+                            edgeStart = v0;
+                            edgeEnd = v1;
+                        }
+                        
+                        // Test ray against wall
+                        float t;
+                        vec3 hitPos;
+                        vec3 normal;
+                        if (rayWallIntersection(rayOrigin, rayDir, edgeStart, edgeEnd, CEILING_Y, t, hitPos, normal)) {
+                            if (t < closestT && t > EPSILON) {
+                                closestT = t;
+                                closestHit = hitPos;
+                                closestNormal = normal;
+                                hitEdge = edgeIdx;
+                                hitWall = true;
+                                hitPlayer = false; // Wall is closer, so not player
+                            }
                         }
                     }
                 }
             }
         }
-    }
-    
-    // If we hit a wall, render it
-    if (hitWall) {
-        return renderWall(closestHit, hitEdge);
-    }
-    
-    // Check floor intersection
-    float floorT;
-    vec3 floorHit;
-    if (rayFloorIntersection(origin, dir, floorT, floorHit)) {
-        if (floorT < MAX_DIST) {
-            return renderFloor(floorHit);
+        
+        // Check player quad (only for reflected rays, bounce > 0)
+        if (bounce > 0) {
+            float playerT;
+            vec3 playerHit;
+            vec2 tempPlayerUV;
+            if (rayPlayerQuadIntersection(rayOrigin, rayDir, playerT, playerHit, tempPlayerUV)) {
+                // If player is closer than wall (or no wall hit), use player
+                if (playerT < closestT && playerT > EPSILON) {
+                    closestT = playerT;
+                    closestHit = playerHit;
+                    playerUV = tempPlayerUV;
+                    hitPlayer = true;
+                    hitWall = false; // Player is closer than wall
+                }
+            }
         }
+        
+        // Handle player hit (closer than wall)
+        if (hitPlayer) {
+            // Sample player texture
+            vec4 playerColor = texture2D(uPlayerTexture, playerUV);
+            
+            // Apply alpha blending - if transparent, continue to background
+            if (playerColor.a > 0.1) {
+                accumulatedColor += playerColor.rgb * playerColor.a * reflectivity;
+                
+                // If not fully opaque, blend with background
+                if (playerColor.a < 0.99) {
+                    reflectivity *= (1.0 - playerColor.a);
+                } else {
+                    break;
+                }
+            }
+            // Continue ray through transparent parts
+            rayOrigin = closestHit + rayDir * EPSILON * 10.0;
+            continue;
+        }
+        
+        // Handle wall hit (reflects)
+        if (hitWall) {
+            // Add a subtle mirror surface color contribution (consistent for all mirrors)
+            vec3 mirrorSurfaceColor = vec3(0.9, 0.95, 1.0); // Slight blue-white
+            accumulatedColor += mirrorSurfaceColor * reflectivity * 0.12;
+            
+            // Apply mirror tint for next bounce
+            reflectivity *= mirrorTint;
+            
+            // Reflect the ray
+            rayDir = reflect(rayDir, closestNormal);
+            rayOrigin = closestHit + closestNormal * EPSILON * 10.0; // Offset to avoid self-intersection
+            
+            continue;
+        }
+        
+        // No wall or player hit - check floor/sky and finish
+        float floorT;
+        vec3 floorHit;
+        if (rayFloorIntersection(rayOrigin, rayDir, floorT, floorHit)) {
+            if (floorT < MAX_DIST) {
+                accumulatedColor += renderFloor(floorHit) * reflectivity;
+                break;
+            }
+        }
+        
+        // No hit - render sky
+        accumulatedColor += renderSky(rayDir) * reflectivity;
+        break;
     }
     
-    // No hit - render sky
-    return renderSky(dir);
+    return accumulatedColor;
 }
 
 // ================================================================

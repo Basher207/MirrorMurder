@@ -28,18 +28,48 @@ class SceneRenderer {
         this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
         
         // Player position and orientation
-        this.playerPos = new THREE.Vector3(5, 0.8, 5); // Y is eye height
+        this.playerPos = new THREE.Vector3(5, 3.8, 5); // Y is eye height
         this.playerYaw = 0; // Rotation around Y axis (radians)
         this.playerPitch = 0; // Look up/down (radians)
         
         // Camera settings
         this.fov = 75 * Math.PI / 180; // Field of view in radians
         
-        // Create maze texture
+        // Grid reference (will be set from index.html)
+        this.grid = null;
+        
+        // Create maze texture (will use fallback until grid is set)
         this.mazeTexture = this.createMazeTexture();
+        
+        // Load player texture
+        this.playerTexture = null;
+        this.loadPlayerTexture();
         
         // Create fullscreen shader (async)
         this.init();
+    }
+    
+    /**
+     * Set the grid and regenerate maze texture
+     * @param {TriangularGrid} grid - The triangular grid system
+     */
+    setGrid(grid) {
+        this.grid = grid;
+        console.log('🎮 SceneRenderer: Grid set, regenerating maze texture...');
+        
+        // Regenerate maze texture with grid data
+        this.mazeTexture = this.createMazeTexture();
+        
+        // Update shader if it's ready
+        if (this.fullscreenQuad) {
+            const mazeBitmask = grid.toMazeBitmask();
+            const newMazeSize = new THREE.Vector2(mazeBitmask[0].length, mazeBitmask.length);
+            
+            this.fullscreenQuad.material.uniforms.uMazeTexture.value = this.mazeTexture;
+            this.fullscreenQuad.material.uniforms.uMazeSize.value = newMazeSize;
+            
+            console.log('   └─ Shader texture and size updated to', newMazeSize.x, 'x', newMazeSize.y);
+        }
     }
     
     async init() {
@@ -49,7 +79,23 @@ class SceneRenderer {
     }
     
     createMazeTexture() {
-        const encoded = encodeToTexture();
+        console.log('🖼️  Creating maze texture from encoded data...');
+        
+        let encoded;
+        
+        if (this.grid) {
+            // Use grid data (preferred)
+            console.log('   └─ Source: TriangularGrid');
+            const mazeBitmask = this.grid.toMazeBitmask();
+            encoded = this.encodeBitmaskToTexture(mazeBitmask);
+        } else {
+            // Fallback to maze.js
+            console.log('   └─ Source: maze.js fallback (no grid set yet)');
+            encoded = encodeToTexture();
+        }
+        
+        console.log('   └─ Encoded dimensions:', encoded.width, 'x', encoded.height);
+        console.log('   └─ Sample data [0]:', encoded.data[0], encoded.data[1], encoded.data[2], encoded.data[3]);
         
         const texture = new THREE.DataTexture(
             encoded.data,
@@ -65,7 +111,74 @@ class SceneRenderer {
         texture.wrapT = THREE.ClampToEdgeWrapping;
         texture.needsUpdate = true;
         
+        console.log('   └─ Texture created and marked for update');
+        
         return texture;
+    }
+    
+    /**
+     * Encode bitmask maze data to texture format
+     * @param {Array<Array<number>>} mazeBitmask - 2D array of wall bitmasks
+     */
+    encodeBitmaskToTexture(mazeBitmask) {
+        const height = mazeBitmask.length;
+        const width = mazeBitmask[0]?.length || 0;
+        const data = new Float32Array(height * width * 4);
+        
+        console.log('🎨 Encoding bitmask to texture...');
+        
+        for (let row = 0; row < height; row++) {
+            for (let col = 0; col < width; col++) {
+                const idx = (row * width + col) * 4;
+                
+                // Determine if triangle points up
+                const up = (row + col) % 2 === 0;
+                const walls = mazeBitmask[row][col];
+                
+                data[idx + 0] = up ? 1.0 : 0.0;        // R: orientation
+                data[idx + 1] = walls / 7.0;           // G: walls normalized to 0-1
+                data[idx + 2] = 0.0;                   // B: reserved
+                data[idx + 3] = 1.0;                   // A: reserved
+                
+                if (row === 0) {
+                    console.log(`   └─ Cell [${row},${col}]: walls=${walls} (${walls.toString(2).padStart(3, '0')}b), up=${up}, encoded=${(walls/7.0).toFixed(3)}`);
+                }
+            }
+        }
+        
+        console.log('   └─ Texture size:', width, 'x', height, '=', width * height, 'cells');
+        console.log('   └─ Data array length:', data.length, 'floats');
+        
+        return {
+            data: data,
+            width: width,
+            height: height
+        };
+    }
+    
+    loadPlayerTexture() {
+        const loader = new THREE.TextureLoader();
+        loader.load(
+            './assets/player.png',
+            (texture) => {
+                texture.minFilter = THREE.LinearFilter;
+                texture.magFilter = THREE.LinearFilter;
+                texture.wrapS = THREE.ClampToEdgeWrapping;
+                texture.wrapT = THREE.ClampToEdgeWrapping;
+                this.playerTexture = texture;
+                
+                // Update uniform if shader is already loaded
+                if (this.fullscreenQuad) {
+                    this.fullscreenQuad.material.uniforms.uPlayerTexture.value = texture;
+                }
+                
+                console.log('✅ Player texture loaded');
+            },
+            undefined,
+            (error) => {
+                console.error('❌ Failed to load player texture:', error);
+            }
+        );
     }
     
     async createFullscreenShader() {
@@ -77,10 +190,27 @@ class SceneRenderer {
         const geometry = new THREE.PlaneGeometry(2, 2);
         
         // Shader material
+        // Get maze size from grid if available, otherwise use fallback
+        let mazeWidth, mazeHeight;
+        if (this.grid) {
+            const mazeBitmask = this.grid.toMazeBitmask();
+            mazeWidth = mazeBitmask[0].length;
+            mazeHeight = mazeBitmask.length;
+        } else {
+            mazeWidth = MAZE_COLS;
+            mazeHeight = MAZE_ROWS;
+        }
+        
+        console.log('🎬 Creating shader material with uniforms:');
+        console.log('   └─ uMazeSize:', mazeWidth, 'x', mazeHeight);
+        console.log('   └─ uTriangleSize:', TRIANGLE_SIZE);
+        console.log('   └─ uTriangleHeight:', TRIANGLE_HEIGHT);
+        
         const material = new THREE.ShaderMaterial({
             uniforms: {
                 uMazeTexture: { value: this.mazeTexture },
-                uMazeSize: { value: new THREE.Vector2(MAZE_COLS, MAZE_ROWS) },
+                uPlayerTexture: { value: this.playerTexture },
+                uMazeSize: { value: new THREE.Vector2(mazeWidth, mazeHeight) },
                 uTriangleSize: { value: TRIANGLE_SIZE },
                 uTriangleHeight: { value: TRIANGLE_HEIGHT },
                 uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
