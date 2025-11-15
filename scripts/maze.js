@@ -20,19 +20,18 @@ const EDGE = {
 // Bit 0 (1): Edge 0 has wall (third edge)
 // Bit 1 (2): Edge 1 has wall (left edge)
 // Bit 2 (4): Edge 2 has wall (right edge)
-// Generated from TriangularGrid map format: left|right|third
+// NOTE: This is now a FALLBACK only. The actual maze is loaded from TriangularGrid in index.html
+// and converted at runtime using grid.toMazeBitmask()
 const mazeData = [
-    [1, 0, 1, 0, 0, 0],  // Row 0
-    [4, 2, 4, 0, 4, 3],  // Row 1
-    [0, 1, 0, 0, 2, 0],  // Row 2
-    [2, 0, 4, 0, 1, 0],  // Row 3
-    [1, 0, 0, 2, 0, 4],  // Row 4
-    [0, 3, 0, 0, 4, 0],  // Row 5
-    [4, 0, 1, 0, 0, 2],  // Row 6
+    [0]  // Fallback empty maze (1x1)
 ];
 
 const MAZE_ROWS = mazeData.length;
 const MAZE_COLS = mazeData[0].length;
+
+console.log('🗺️  Maze.js loaded (fallback data only):');
+console.log('   └─ Fallback dimensions:', MAZE_ROWS, 'rows x', MAZE_COLS, 'cols');
+console.log('   └─ Actual maze should be loaded from TriangularGrid in index.html');
 
 // ============================================================================
 // Helper Functions
@@ -128,6 +127,8 @@ function getNeighbor(row, col, edgeIndex) {
 function encodeToTexture() {
     const data = new Float32Array(MAZE_ROWS * MAZE_COLS * 4);
     
+    console.log('🎨 Encoding maze to texture...');
+    
     for (let row = 0; row < MAZE_ROWS; row++) {
         for (let col = 0; col < MAZE_COLS; col++) {
             const idx = (row * MAZE_COLS + col) * 4;
@@ -138,8 +139,15 @@ function encodeToTexture() {
             data[idx + 1] = walls / 7.0;           // G: walls normalized to 0-1
             data[idx + 2] = 0.0;                   // B: reserved
             data[idx + 3] = 1.0;                   // A: reserved
+            
+            if (row === 0) {
+                console.log(`   └─ Cell [${row},${col}]: walls=${walls} (${walls.toString(2).padStart(3, '0')}b), up=${up}, encoded=${(walls/7.0).toFixed(3)}`);
+            }
         }
     }
+    
+    console.log('   └─ Texture size:', MAZE_COLS, 'x', MAZE_ROWS, '=', MAZE_COLS * MAZE_ROWS, 'cells');
+    console.log('   └─ Data array length:', data.length, 'floats');
     
     return {
         data: data,

@@ -55,13 +55,18 @@
         const canvas = document.getElementById('gameCanvas');
         const minimapContainer = document.getElementById('minimapContainer');
 
+//         // Create a default map
+//         const defaultMap = `
+// e|e|m e|e|e e|e|m e|e|e e|e|e e|e|e
+// e|m|e m|e|e e|m|e e|e|e e|m|e m|e|m
+// e|e|e e|e|m e|e|e e|e|e m|e|e e|e|e
+// m|e|e e|e|e e|m|e e|e|e e|e|m e|e|e
+// e|e|m e|e|e e|e|e m|e|e e|e|e e|m|e
+// e|e|e m|e|m e|e|e e|e|e e|m|e e|e|e
+// e|m|e e|e|e e|e|m e|e|e e|e|e m|e|e
+//         `.trim();
         // Create a default map
         const defaultMap = `
-e|e|m e|e|e e|e|m e|e|e e|e|e e|e|e
-e|m|e m|e|e e|m|e e|e|e e|m|e m|e|m
-e|e|e e|e|m e|e|e e|e|e m|e|e e|e|e
-m|e|e e|e|e e|m|e e|e|e e|e|m e|e|e
-e|e|m e|e|e e|e|e m|e|e e|e|e e|m|e
 e|e|e m|e|m e|e|e e|e|e e|m|e e|e|e
 e|m|e e|e|e e|e|m e|e|e e|e|e m|e|e
         `.trim();
@@ -76,7 +81,10 @@ e|m|e e|e|e e|e|m e|e|e e|e|e m|e|e
         const uiOverlay = new UIOverlay(minimapContainer);
         const movement = new SimpleMovement();
 
-        // Set the grid in the UI overlay
+        // Set the grid in the scene renderer (generates maze texture)
+        sceneRenderer.setGrid(grid);
+        
+        // Set the grid in the UI overlay (for minimap)
         uiOverlay.setGrid(grid);
         
         // Connect UI overlay to scene renderer for player position
