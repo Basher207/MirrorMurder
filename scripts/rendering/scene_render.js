@@ -15,13 +15,21 @@ class SceneRenderer {
         this.canvas = canvas;
         this.isReady = false;
         
+        // Render at a lower internal resolution for performance
+        // while keeping the canvas visually full-screen via CSS.
+        this.renderScale = 0.5; // 0.5 = half resolution
+        this.renderWidth = window.innerWidth * this.renderScale;
+        this.renderHeight = window.innerHeight * this.renderScale;
+        
         // Create Three.js renderer
         this.renderer = new THREE.WebGLRenderer({ 
             canvas: canvas,
             antialias: false 
         });
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(window.devicePixelRatio);
+        // Use a fixed pixel ratio and a smaller drawing buffer for speed
+        this.renderer.setPixelRatio(1);
+        // Third argument `false` keeps the CSS size (100% viewport) untouched
+        this.renderer.setSize(this.renderWidth, this.renderHeight, false);
         
         // Create scene and camera (camera just for the fullscreen quad)
         this.scene = new THREE.Scene();
@@ -45,6 +53,14 @@ class SceneRenderer {
         this.playerTexture = null;
         this.playerBackTexture = null;
         this.loadPlayerTextures();
+        
+        // Load mirror texture
+        this.mirrorTexture = null;
+        this.loadMirrorTexture();
+        
+        // Load floor texture
+        this.floorTexture = null;
+        this.loadFloorTexture();
         
         // Create fullscreen shader (async)
         this.init();
@@ -207,6 +223,60 @@ class SceneRenderer {
         );
     }
     
+    loadMirrorTexture() {
+        const loader = new THREE.TextureLoader();
+        
+        // Load mirror texture (mirror.png)
+        loader.load(
+            './assets/mirror.png',
+            (texture) => {
+                texture.minFilter = THREE.LinearFilter;
+                texture.magFilter = THREE.LinearFilter;
+                texture.wrapS = THREE.ClampToEdgeWrapping;
+                texture.wrapT = THREE.ClampToEdgeWrapping;
+                this.mirrorTexture = texture;
+                
+                // Update uniform if shader is already loaded
+                if (this.fullscreenQuad) {
+                    this.fullscreenQuad.material.uniforms.uMirrorTexture.value = texture;
+                }
+                
+                console.log('✅ Mirror texture loaded');
+            },
+            undefined,
+            (error) => {
+                console.error('❌ Failed to load mirror texture:', error);
+            }
+        );
+    }
+    
+    loadFloorTexture() {
+        const loader = new THREE.TextureLoader();
+        
+        // Load floor texture (floor.jpg)
+        loader.load(
+            './assets/floor.jpg',
+            (texture) => {
+                texture.minFilter = THREE.LinearFilter;
+                texture.magFilter = THREE.LinearFilter;
+                texture.wrapS = THREE.RepeatWrapping;
+                texture.wrapT = THREE.RepeatWrapping;
+                this.floorTexture = texture;
+                
+                // Update uniform if shader is already loaded
+                if (this.fullscreenQuad) {
+                    this.fullscreenQuad.material.uniforms.uFloorTexture.value = texture;
+                }
+                
+                console.log('✅ Floor texture loaded');
+            },
+            undefined,
+            (error) => {
+                console.error('❌ Failed to load floor texture:', error);
+            }
+        );
+    }
+    
     async createFullscreenShader() {
         // Load shader files
         const vertexShader = await this.loadShader('./scripts/rendering/shaders/raycast.vert.glsl');
@@ -237,10 +307,13 @@ class SceneRenderer {
                 uMazeTexture: { value: this.mazeTexture },
                 uPlayerTexture: { value: this.playerTexture },
                 uPlayerBackTexture: { value: this.playerBackTexture },
+                uMirrorTexture: { value: this.mirrorTexture },
+                uFloorTexture: { value: this.floorTexture },
                 uMazeSize: { value: new THREE.Vector2(mazeWidth, mazeHeight) },
                 uTriangleSize: { value: TRIANGLE_SIZE },
                 uTriangleHeight: { value: TRIANGLE_HEIGHT },
-                uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+                // Internal render resolution (half-size of window by default)
+                uResolution: { value: new THREE.Vector2(this.renderWidth, this.renderHeight) },
                 uPlayerPos: { value: this.playerPos },
                 uPlayerYaw: { value: this.playerYaw },
                 uPlayerPitch: { value: this.playerPitch },
@@ -291,9 +364,12 @@ class SceneRenderer {
     
     // Handle window resize
     handleResize(width, height) {
-        this.renderer.setSize(width, height);
+        // Recompute internal render size based on scale
+        this.renderWidth = width * this.renderScale;
+        this.renderHeight = height * this.renderScale;
+        this.renderer.setSize(this.renderWidth, this.renderHeight, false);
         if (this.isReady) {
-            this.fullscreenQuad.material.uniforms.uResolution.value.set(width, height);
+            this.fullscreenQuad.material.uniforms.uResolution.value.set(this.renderWidth, this.renderHeight);
         }
     }
     

@@ -1,6 +1,8 @@
 uniform sampler2D uMazeTexture;
 uniform sampler2D uPlayerTexture;
 uniform sampler2D uPlayerBackTexture;
+uniform sampler2D uMirrorTexture;
+uniform sampler2D uFloorTexture;
 uniform vec2 uMazeSize;
 uniform float uTriangleSize;
 uniform float uTriangleHeight;
@@ -18,13 +20,13 @@ varying vec2 vUv;
 // ================================================================
 
 const float FLOOR_Y = 0.0;
-const float CEILING_Y = 1.5;
+const float CEILING_Y = 5.8;
 const float MAX_DIST = 100.0;
 const float EPSILON = 0.001;
-const int MAX_BOUNCES = 15;
+const int MAX_BOUNCES = 8;
 const float PLAYER_QUAD_WIDTH = 0.6;
-const float PLAYER_QUAD_HEIGHT = 1.2;
-const float PLAYER_QUAD_Y_OFFSET = 0.6; // Center height of quad above floor
+const float PLAYER_QUAD_HEIGHT = 1.05;
+const float PLAYER_QUAD_Y_OFFSET = 0.525; // Center height of quad above floor
 
 // ================================================================
 // Utility Functions
@@ -110,7 +112,7 @@ void getTriangleVertices(ivec2 gridPos, out vec3 v0, out vec3 v1, out vec3 v2) {
 // ================================================================
 
 // Ray-vertical wall intersection (wall is a vertical rectangle)
-bool rayWallIntersection(vec3 origin, vec3 dir, vec3 wallStart, vec3 wallEnd, float wallHeight, out float t, out vec3 hitPos, out vec3 normal) {
+bool rayWallIntersection(vec3 origin, vec3 dir, vec3 wallStart, vec3 wallEnd, float wallHeight, out float t, out vec3 hitPos, out vec3 normal, out vec2 uv) {
     // Wall is vertical from y=0 to y=wallHeight
     // Wall edge goes from wallStart (x,z) to wallEnd (x,z)
     
@@ -153,6 +155,11 @@ bool rayWallIntersection(vec3 origin, vec3 dir, vec3 wallStart, vec3 wallEnd, fl
         normal2D = -normal2D;
     }
     normal = normalize(vec3(normal2D.x, 0.0, normal2D.y));
+    
+    // Calculate UV coordinates for the wall
+    // U: horizontal position along wall (s from 0 to 1)
+    // V: vertical position (y from FLOOR_Y to wallHeight)
+    uv = vec2(s, (hitY - FLOOR_Y) / (wallHeight - FLOOR_Y));
     
     return true;
 }
@@ -236,15 +243,71 @@ bool rayFloorIntersection(vec3 origin, vec3 dir, out float t, out vec3 hitPos) {
 }
 
 // ================================================================
+// Noise Functions
+// ================================================================
+
+// Improved 2D hash function - more random, less axis-aligned
+float hash(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.13);
+    p3 += dot(p3, p3.yzx + 3.333);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+// Smooth noise with better interpolation
+float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    
+    // Quintic interpolation for smoother results
+    vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    
+    // Get corner values with different offsets to avoid axis alignment
+    float a = hash(i);
+    float b = hash(i + vec2(1.0, 0.0));
+    float c = hash(i + vec2(0.0, 1.0));
+    float d = hash(i + vec2(1.0, 1.0));
+    
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+// Fractal noise with many octaves for rich detail
+float fbm(vec2 p) {
+    float value = 0.0;
+    float amplitude = 0.5;
+    float frequency = 1.0;
+    
+    // 8 octaves for much more detail
+    for (int i = 0; i < 8; i++) {
+        value += amplitude * noise(p * frequency);
+        // Rotate each octave slightly to break up axis alignment
+        p = mat2(0.8, -0.6, 0.6, 0.8) * p;
+        frequency *= 2.0;
+        amplitude *= 0.5;
+    }
+    
+    return value;
+}
+
+// ================================================================
 // Rendering
 // ================================================================
+
+// Distance from point p to line segment ab
+float pointToSegmentDist(vec2 p, vec2 a, vec2 b) {
+    vec2 pa = p - a;
+    vec2 ba = b - a;
+    // Project pa onto ba, but clamp projection to the segment
+    float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+    // Distance from p to the projection
+    return length(pa - ba * h);
+}
 
 vec3 renderWall(vec3 hitPos, int edgeIndex) {
     // Flat colored walls based on edge orientation
     vec3 wallColors[3];
-    wallColors[0] = vec3(0.7, 0.3, 0.3); // Edge 0 - Red
-    wallColors[1] = vec3(0.3, 0.7, 0.3); // Edge 1 - Green
-    wallColors[2] = vec3(0.3, 0.3, 0.7); // Edge 2 - Blue
+    wallColors[0] = vec3(1.0, 1.0, 1.0);
+    wallColors[1] = vec3(1.0, 1.0, 1.0);
+    wallColors[2] = vec3(1.0, 1.0, 1.0);
     
     vec3 baseColor = wallColors[edgeIndex];
     
@@ -257,11 +320,46 @@ vec3 renderWall(vec3 hitPos, int edgeIndex) {
 }
 
 vec3 renderFloor(vec3 hitPos) {
-    // Checkerboard pattern based on world position
-    float checker = mod(floor(hitPos.x) + floor(hitPos.z), 2.0);
-    vec3 color1 = vec3(0.2, 0.2, 0.25);
-    vec3 color2 = vec3(0.3, 0.3, 0.35);
-    vec3 baseColor = mix(color1, color2, checker);
+    // Sample the triangle grid around this point so edges are continuous,
+    // even when the point is numerically assigned to the neighbouring cell.
+    ivec2 baseGrid = worldToGrid(hitPos);
+    float min_dist = 9999.0;
+
+    // Check current cell and four direct neighbours (same pattern as DDA)
+    for (int i = 0; i < 5; i++) {
+        ivec2 gridPos = baseGrid;
+        if (i == 1) gridPos += ivec2(1, 0);
+        if (i == 2) gridPos += ivec2(-1, 0);
+        if (i == 3) gridPos += ivec2(0, 1);
+        if (i == 4) gridPos += ivec2(0, -1);
+
+        vec3 v0, v1, v2;
+        getTriangleVertices(gridPos, v0, v1, v2);
+
+        // Distances to the three edges (in XZ plane)
+        float d0 = pointToSegmentDist(hitPos.xz, v1.xz, v2.xz);
+        float d1 = pointToSegmentDist(hitPos.xz, v2.xz, v0.xz);
+        float d2 = pointToSegmentDist(hitPos.xz, v0.xz, v1.xz);
+
+        float localMin = min(d0, min(d1, d2));
+        min_dist = min(min_dist, localMin);
+    }
+
+    // If close to any edge, make it black
+    float edge_thickness = 0.05;
+    if (min_dist < edge_thickness) {
+        return vec3(0.0); // Pitch black edge overlay
+    }
+
+    // Red base color
+    vec3 baseColor = vec3(0.8, 0.1, 0.1);
+    
+    // Add rich noise pattern using world position
+    vec2 noiseCoord = vec2(hitPos.x, hitPos.z) * 3.0;
+    float noiseValue = fbm(noiseCoord);
+    
+    // Modulate the red color with noise for variation
+    baseColor = mix(baseColor * 0.5, baseColor * 1.3, noiseValue);
     
     // Distance-based fog
     float dist = length(hitPos - uPlayerPos);
@@ -276,6 +374,71 @@ vec3 renderFloor(vec3 hitPos) {
 }
 
 // ================================================================
+// DDA Grid Traversal for Triangle Grid
+// ================================================================
+
+// Check a single grid cell for wall intersections
+void checkGridCell(ivec2 gridPos, vec3 rayOrigin, vec3 rayDir, inout float closestT, 
+                   inout vec3 closestHit, inout vec3 closestNormal, inout int hitEdge, 
+                   inout bool hitWall, inout bool hitPlayer, inout vec2 wallUV) {
+    // Skip out-of-bounds cells entirely
+    if (gridPos.x < 0 || gridPos.x >= int(uMazeSize.x) || 
+        gridPos.y < 0 || gridPos.y >= int(uMazeSize.y)) {
+        return;
+    }
+    
+    // Get maze cell data
+    vec4 cellData = getMazeCell(gridPos);
+    float wallBits = cellData.g * 7.0; // Convert back from normalized
+    int walls = int(wallBits + 0.5);
+    
+    // Skip if no walls
+    if (walls == 0) return;
+    
+    // Get triangle vertices
+    vec3 v0, v1, v2;
+    getTriangleVertices(gridPos, v0, v1, v2);
+    
+    // Check each edge for walls
+    for (int edgeIdx = 0; edgeIdx < 3; edgeIdx++) {
+        // Check if this edge has a wall
+        int edgeBit = 1 << edgeIdx;
+        if ((walls & edgeBit) != 0) {
+            vec3 edgeStart, edgeEnd;
+            
+            // Get edge vertices (edge N connects vertex (N+1) to vertex (N+2))
+            if (edgeIdx == 0) {
+                edgeStart = v1;
+                edgeEnd = v2;
+            } else if (edgeIdx == 1) {
+                edgeStart = v2;
+                edgeEnd = v0;
+            } else {
+                edgeStart = v0;
+                edgeEnd = v1;
+            }
+            
+            // Test ray against wall
+            float t;
+            vec3 hitPos;
+            vec3 normal;
+            vec2 uv;
+            if (rayWallIntersection(rayOrigin, rayDir, edgeStart, edgeEnd, CEILING_Y, t, hitPos, normal, uv)) {
+                if (t < closestT && t > EPSILON) {
+                    closestT = t;
+                    closestHit = hitPos;
+                    closestNormal = normal;
+                    hitEdge = edgeIdx;
+                    hitWall = true;
+                    hitPlayer = false; // Wall is closer, so not player
+                    wallUV = uv;
+                }
+            }
+        }
+    }
+}
+
+// ================================================================
 // Main Raycast
 // ================================================================
 
@@ -285,8 +448,8 @@ vec3 castRay(vec3 origin, vec3 dir) {
     vec3 accumulatedColor = vec3(0.0);
     vec3 reflectivity = vec3(1.0);
     
-    // Mirror tint - slightly cyan/blue to indicate mirror surfaces
-    vec3 mirrorTint = vec3(0.85, 0.9, 1.0);
+    // Mirror tint - slightly cyan/blue to indicate mirror surfaces (very subtle)
+    vec3 mirrorTint = vec3(0.9, 0.9, 0.9);
     
     for (int bounce = 0; bounce <= MAX_BOUNCES; bounce++) {
         float closestT = MAX_DIST;
@@ -296,59 +459,73 @@ vec3 castRay(vec3 origin, vec3 dir) {
         bool hitWall = false;
         bool hitPlayer = false;
         vec2 playerUV = vec2(0.0);
+        vec2 wallUV = vec2(0.0);
         
-        // Check all maze cells for wall intersections
-        for (int row = 0; row < int(uMazeSize.y); row++) {
-            for (int col = 0; col < int(uMazeSize.x); col++) {
-                ivec2 gridPos = ivec2(col, row);
-                
-                // Get maze cell data
-                vec4 cellData = getMazeCell(gridPos);
-                float wallBits = cellData.g * 7.0; // Convert back from normalized
-                int walls = int(wallBits + 0.5);
-                
-                // Skip if no walls
-                if (walls == 0) continue;
-                
-                // Get triangle vertices
-                vec3 v0, v1, v2;
-                getTriangleVertices(gridPos, v0, v1, v2);
-                
-                // Check each edge for walls
-                for (int edgeIdx = 0; edgeIdx < 3; edgeIdx++) {
-                    // Check if this edge has a wall
-                    int edgeBit = 1 << edgeIdx;
-                    if ((walls & edgeBit) != 0) {
-                        vec3 edgeStart, edgeEnd;
-                        
-                        // Get edge vertices (edge N connects vertex (N+1) to vertex (N+2))
-                        if (edgeIdx == 0) {
-                            edgeStart = v1;
-                            edgeEnd = v2;
-                        } else if (edgeIdx == 1) {
-                            edgeStart = v2;
-                            edgeEnd = v0;
-                        } else {
-                            edgeStart = v0;
-                            edgeEnd = v1;
-                        }
-                        
-                        // Test ray against wall
-                        float t;
-                        vec3 hitPos;
-                        vec3 normal;
-                        if (rayWallIntersection(rayOrigin, rayDir, edgeStart, edgeEnd, CEILING_Y, t, hitPos, normal)) {
-                            if (t < closestT && t > EPSILON) {
-                                closestT = t;
-                                closestHit = hitPos;
-                                closestNormal = normal;
-                                hitEdge = edgeIdx;
-                                hitWall = true;
-                                hitPlayer = false; // Wall is closer, so not player
-                            }
-                        }
-                    }
-                }
+        // DDA Grid Traversal - only check cells the ray passes through
+        ivec2 currentGrid = worldToGrid(rayOrigin);
+        
+        // Ray direction in grid space (columns and rows per unit distance)
+        float colsPerUnit = 1.0 / (uTriangleSize * 0.5);
+        float rowsPerUnit = 1.0 / uTriangleHeight;
+        vec2 rayGridDir = vec2(rayDir.x * colsPerUnit, rayDir.z * rowsPerUnit);
+        
+        // DDA step directions
+        ivec2 stepDir = ivec2(sign(rayGridDir.x), sign(rayGridDir.y));
+        
+        // Distance to next grid boundary (in world units)
+        vec2 nextBoundary;
+        nextBoundary.x = (stepDir.x > 0) ? 
+            (float(currentGrid.x + 1) / colsPerUnit) : 
+            (float(currentGrid.x) / colsPerUnit);
+        nextBoundary.y = (stepDir.y > 0) ? 
+            (float(currentGrid.y + 1) / rowsPerUnit) : 
+            (float(currentGrid.y) / rowsPerUnit);
+        
+        // Calculate tDelta - distance to traverse one grid cell
+        vec2 tDelta = abs(vec2(1.0 / rayGridDir.x, 1.0 / rayGridDir.y));
+        // Clamp tDelta to prevent huge steps when ray is nearly parallel to grid axis
+        const float MAX_TDELTA = 5.0;
+        tDelta = min(tDelta, vec2(MAX_TDELTA));
+        
+        // Calculate initial tMax - distance to next grid boundary
+        vec2 tMax;
+        tMax.x = (abs(rayGridDir.x) > EPSILON) ? 
+            abs(nextBoundary.x - rayOrigin.x) / abs(rayDir.x) : 
+            MAX_DIST;
+        tMax.y = (abs(rayGridDir.y) > EPSILON) ? 
+            abs(nextBoundary.y - rayOrigin.z) / abs(rayDir.z) : 
+            MAX_DIST;
+        
+        // Traverse grid using DDA
+        const int MAX_STEPS = 100; // Limit traversal steps to prevent infinite loops
+        for (int step = 0; step < MAX_STEPS; step++) {
+            // Check current cell and its neighbors. The checkGridCell function has its own
+            // bounds check, so we can call it even when currentGrid is outside the maze.
+            checkGridCell(currentGrid, rayOrigin, rayDir, closestT, closestHit, closestNormal, hitEdge, hitWall, hitPlayer, wallUV);
+            checkGridCell(currentGrid + ivec2(1, 0), rayOrigin, rayDir, closestT, closestHit, closestNormal, hitEdge, hitWall, hitPlayer, wallUV);
+            checkGridCell(currentGrid + ivec2(-1, 0), rayOrigin, rayDir, closestT, closestHit, closestNormal, hitEdge, hitWall, hitPlayer, wallUV);
+            checkGridCell(currentGrid + ivec2(0, 1), rayOrigin, rayDir, closestT, closestHit, closestNormal, hitEdge, hitWall, hitPlayer, wallUV);
+            checkGridCell(currentGrid + ivec2(0, -1), rayOrigin, rayDir, closestT, closestHit, closestNormal, hitEdge, hitWall, hitPlayer, wallUV);
+            
+            // If we found a hit closer than our current traversal distance, stop
+            if (hitWall && closestT < min(tMax.x, tMax.y)) {
+                break;
+            }
+            
+            // Step to next grid cell
+            if (tMax.x < tMax.y) {
+                tMax.x += tDelta.x;
+                currentGrid.x += stepDir.x;
+            } else {
+                tMax.y += tDelta.y;
+                currentGrid.y += stepDir.y;
+            }
+            
+            // Stop if we've gone too far or out of bounds
+            if (min(tMax.x, tMax.y) > MAX_DIST || 
+                currentGrid.x < -1 || currentGrid.x > int(uMazeSize.x) ||
+                currentGrid.y < -1 || currentGrid.y > int(uMazeSize.y)) {
+                break;
             }
         }
         
@@ -395,20 +572,31 @@ vec3 castRay(vec3 origin, vec3 dir) {
             continue;
         }
         
-        // Handle wall hit (reflects)
+        // Handle wall hit (check if mirror or solid wall)
         if (hitWall) {
-            // Add a subtle mirror surface color contribution (consistent for all mirrors)
-            vec3 mirrorSurfaceColor = vec3(0.9, 0.95, 1.0); // Slight blue-white
-            accumulatedColor += mirrorSurfaceColor * reflectivity * 0.12;
+            // Sample the mirror texture to determine if this wall is a mirror
+            vec4 mirrorData = texture2D(uMirrorTexture, wallUV);
+            bool isMirror = mirrorData.g > 0.7;
             
-            // Apply mirror tint for next bounce
-            reflectivity *= mirrorTint;
-            
-            // Reflect the ray
-            rayDir = reflect(rayDir, closestNormal);
-            rayOrigin = closestHit + closestNormal * EPSILON * 10.0; // Offset to avoid self-intersection
-            
-            continue;
+            if (isMirror) {
+                // Mirror surface - reflect the ray
+                // Apply mirror tint for next bounce
+                // This gradually darkens the reflection with each bounce
+
+                // if (bounce > 1) {
+                    reflectivity *= mirrorTint;
+                // }
+                
+                // Reflect the ray
+                rayDir = reflect(rayDir, closestNormal);
+                rayOrigin = closestHit + closestNormal * EPSILON * 10.0; // Offset to avoid self-intersection
+                
+                continue;
+            } else {
+                // Solid wall - render it and stop
+                accumulatedColor += renderWall(closestHit, hitEdge) * reflectivity;
+                break;
+            }
         }
         
         // No wall or player hit - check floor/sky and finish
