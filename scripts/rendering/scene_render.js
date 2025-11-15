@@ -38,6 +38,10 @@ class SceneRenderer {
         // Create maze texture
         this.mazeTexture = this.createMazeTexture();
         
+        // Load player texture
+        this.playerTexture = null;
+        this.loadPlayerTexture();
+        
         // Create fullscreen shader (async)
         this.init();
     }
@@ -68,6 +72,31 @@ class SceneRenderer {
         return texture;
     }
     
+    loadPlayerTexture() {
+        const loader = new THREE.TextureLoader();
+        loader.load(
+            './assets/player.png',
+            (texture) => {
+                texture.minFilter = THREE.LinearFilter;
+                texture.magFilter = THREE.LinearFilter;
+                texture.wrapS = THREE.ClampToEdgeWrapping;
+                texture.wrapT = THREE.ClampToEdgeWrapping;
+                this.playerTexture = texture;
+                
+                // Update uniform if shader is already loaded
+                if (this.fullscreenQuad) {
+                    this.fullscreenQuad.material.uniforms.uPlayerTexture.value = texture;
+                }
+                
+                console.log('✅ Player texture loaded');
+            },
+            undefined,
+            (error) => {
+                console.error('❌ Failed to load player texture:', error);
+            }
+        );
+    }
+    
     async createFullscreenShader() {
         // Load shader files
         const vertexShader = await this.loadShader('./scripts/rendering/shaders/raycast.vert.glsl');
@@ -80,6 +109,7 @@ class SceneRenderer {
         const material = new THREE.ShaderMaterial({
             uniforms: {
                 uMazeTexture: { value: this.mazeTexture },
+                uPlayerTexture: { value: this.playerTexture },
                 uMazeSize: { value: new THREE.Vector2(MAZE_COLS, MAZE_ROWS) },
                 uTriangleSize: { value: TRIANGLE_SIZE },
                 uTriangleHeight: { value: TRIANGLE_HEIGHT },
