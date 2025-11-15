@@ -1,206 +1,221 @@
-// Maze Minimap Renderer using Three.js
-// Renders a top-down view of the triangular maze in the top-right corner
-
-import { 
-    MAZE_ROWS, 
-    MAZE_COLS, 
-    TRIANGLE_SIZE,
-    TRIANGLE_HEIGHT,
-    getCell,
-    hasWall,
-    isPointingUp,
-    getTriangleVertices,
-    getEdgeVertices
-} from '../maze.js';
-import * as THREE from 'three';
+// Maze Minimap
+// Renders a 2D top-down view of the maze in the corner of the screen
 
 class MazeMinimap {
     constructor(containerElement) {
         this.container = containerElement;
+        this.canvas = null;
+        this.grid = null;
+        this.needsRedraw = true;
         
-        // Minimap settings
-        this.minimapSize = 250; // Size in pixels
-        this.padding = 20; // Padding from corner
-        
-        // Create Three.js scene
-        this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x2a2a2a);
-        
-        // Compute camera frustum based on maze size so everything fits nicely
-        const triangleSize = 1.5;
-        const triangleHeight = (Math.sqrt(3) / 2) * triangleSize;
-        const worldWidth = MAZE_COLS * triangleSize;
-        const worldHeight = MAZE_ROWS * triangleHeight;
-        const halfExtent = Math.max(worldWidth, worldHeight) * 0.6;
-
-        // Create orthographic camera for top-down view
-        this.camera = new THREE.OrthographicCamera(
-            -halfExtent, halfExtent,  // left, right
-            halfExtent, -halfExtent,  // top, bottom
-            0.1, 100
-        );
-        this.camera.position.set(0, 10, 0);
-        this.camera.lookAt(0, 0, 0);
-        
-        // Create renderer
-        this.renderer = new THREE.WebGLRenderer({ 
-            antialias: true,
-            alpha: true 
-        });
-        this.renderer.setSize(this.minimapSize, this.minimapSize);
-        this.renderer.domElement.style.position = 'absolute';
-        this.renderer.domElement.style.top = `${this.padding}px`;
-        this.renderer.domElement.style.right = `${this.padding}px`;
-        this.renderer.domElement.style.border = '2px solid #4a4a4a';
-        this.renderer.domElement.style.borderRadius = '8px';
-        this.renderer.domElement.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.5)';
-        this.renderer.domElement.style.zIndex = '1000';
-        
-        // Add renderer to container
-        this.container.appendChild(this.renderer.domElement);
-        
-        // Build the maze geometry
-        this.buildMaze();
-        
-        // Add lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-        this.scene.add(ambientLight);
-        
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.4);
-        directionalLight.position.set(0, 10, 5);
-        this.scene.add(directionalLight);
+        this.initCanvas();
     }
     
-    buildMaze() {
-        // Use maze constants scaled down for minimap
-        const scale = 0.75;
+    initCanvas() {
+        this.canvas = document.createElement('canvas');
+        this.canvas.style.cssText = `
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            border: 3px solid #00ff00;
+            background: #1a1a1a;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            z-index: 1000;
+        `;
+        this.container.appendChild(this.canvas);
         
-        // Materials
-        const floorMaterial = new THREE.MeshStandardMaterial({ 
-            color: 0x3a3a3a,
-            metalness: 0.1,
-            roughness: 0.8
-        });
+        // Set initial size
+        this.resize(250, 250);
+    }
+    
+    resize(width, height) {
+        this.canvas.width = width;
+        this.canvas.height = height;
+        this.canvas.style.width = width + 'px';
+        this.canvas.style.height = height + 'px';
+        this.needsRedraw = true;
+    }
+    
+    /**
+     * Set the grid to visualize
+     * @param {TriangularGrid} grid - The grid system to visualize
+     */
+    setGrid(grid) {
+        this.grid = grid;
+        this.needsRedraw = true;
+        console.log('Minimap: Grid set with', grid.getRowCount(), 'rows');
+    }
+    
+    /**
+     * Draw the triangular grid on the minimap
+     */
+    drawGrid() {
+        const ctx = this.canvas.getContext('2d');
+        const width = this.canvas.width;
+        const height = this.canvas.height;
+
+        // Clear canvas with visible background
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(0, 0, width, height);
+
+        if (!this.grid) {
+            // Draw "No Grid" message
+            ctx.fillStyle = '#00ff00';
+            ctx.font = '16px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('No Grid Loaded', width / 2, height / 2);
+            return;
+        }
+
+        const numRows = this.grid.getRowCount();
+        if (numRows === 0) {
+            ctx.fillStyle = '#ff0000';
+            ctx.font = '16px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('Empty Grid', width / 2, height / 2);
+            return;
+        }
+
+        // Calculate triangle size based on canvas dimensions with padding
+        const padding = 10;
+        const drawWidth = width - (padding * 2);
+        const drawHeight = height - (padding * 2);
         
-        const wallMaterial = new THREE.MeshStandardMaterial({ 
-            color: 0x00aaff,
-            metalness: 0.3,
-            roughness: 0.6,
-            emissive: 0x0055aa,
-            emissiveIntensity: 0.2
-        });
+        const maxTrianglesPerRow = Math.max(...Array.from({length: numRows}, (_, i) => this.grid.getRowLength(i)));
         
-        // Center the maze
-        const offsetX = -(MAZE_COLS * TRIANGLE_SIZE * scale) / 2;
-        const offsetZ = -(MAZE_ROWS * TRIANGLE_HEIGHT * scale) / 2;
-        
-        // Create floor and walls for each triangle
-        for (let row = 0; row < MAZE_ROWS; row++) {
-            for (let col = 0; col < MAZE_COLS; col++) {
-                const cellValue = getCell(row, col);
-                const up = isPointingUp(row, col);
+        // For triangular tessellation:
+        // - Each triangle has width of base
+        // - Height is sqrt(3)/2 * base for equilateral triangles
+        // - Rows are offset by half the height
+        const triangleWidth = drawWidth / maxTrianglesPerRow;
+        const triangleHeight = (Math.sqrt(3) / 2) * triangleWidth;
+        const rowHeight = triangleHeight; // Each row takes full height
+
+        // Draw each triangle
+        for (let row = 0; row < numRows; row++) {
+            const rowLength = this.grid.getRowLength(row);
+            
+            for (let col = 0; col < rowLength; col++) {
+                const triangle = this.grid.getTriangle(row, col);
+                if (!triangle) continue;
+
+                // X position - each triangle takes half the width space
+                const x = padding + (col * triangleWidth / 2);
                 
-                // Get triangle vertices from maze.js (world space)
-                const worldVertices = getTriangleVertices(row, col);
-                
-                // Scale and offset for minimap, convert to THREE.Vector3
-                const vertices = worldVertices.map(v => new THREE.Vector3(
-                    v.x * scale + offsetX,
-                    0,
-                    v.z * scale + offsetZ
-                ));
-                
-                // Create floor triangle using actual vertices
-                const floorGeometry = this.createTriangleFromVertices(vertices);
-                const floorMesh = new THREE.Mesh(floorGeometry, floorMaterial);
-                this.scene.add(floorMesh);
-                
-                // Create walls based on edge data
-                const wallHeight = 0.5;
-                const wallThickness = 0.08;
-                
-                // Check each of the 3 edges
-                for (let edgeIndex = 0; edgeIndex < 3; edgeIndex++) {
-                    if (hasWall(cellValue, edgeIndex)) {
-                        // Get edge vertices from maze.js
-                        const worldEdge = getEdgeVertices(row, col, edgeIndex);
-                        const edgeStart = new THREE.Vector3(
-                            worldEdge[0].x * scale + offsetX,
-                            0,
-                            worldEdge[0].z * scale + offsetZ
-                        );
-                        const edgeEnd = new THREE.Vector3(
-                            worldEdge[1].x * scale + offsetX,
-                            0,
-                            worldEdge[1].z * scale + offsetZ
-                        );
-                        
-                        // Create wall between these points
-                        const wall = this.createWallBetween(
-                            edgeStart, 
-                            edgeEnd, 
-                            wallHeight, 
-                            wallThickness, 
-                            wallMaterial
-                        );
-                        this.scene.add(wall);
-                    }
-                }
+                // Y position - each row is offset by the triangle height
+                const y = padding + (row * rowHeight);
+
+                this.drawTriangle(ctx, triangle, x, y, triangleWidth, triangleHeight);
             }
         }
     }
-    
-    createTriangleFromVertices(vertices) {
-        // vertices is an array of 3 THREE.Vector3 objects
-        const geometry = new THREE.BufferGeometry();
+
+    /**
+     * Draw a single triangle with its sides
+     */
+    drawTriangle(ctx, triangle, x, y, width, height) {
+        // Draw triangle fill
+        ctx.fillStyle = '#2a2a2a';
+        ctx.beginPath();
         
-        const positions = new Float32Array([
-            vertices[0].x, vertices[0].y, vertices[0].z,
-            vertices[1].x, vertices[1].y, vertices[1].z,
-            vertices[2].x, vertices[2].y, vertices[2].z
-        ]);
+        if (triangle.pointsUp) {
+            // Up-pointing triangle: apex at top
+            ctx.moveTo(x + width / 2, y);           // Top point
+            ctx.lineTo(x + width, y + height);      // Bottom right
+            ctx.lineTo(x, y + height);              // Bottom left
+        } else {
+            // Down-pointing triangle: apex at bottom
+            ctx.moveTo(x, y);                       // Top left
+            ctx.lineTo(x + width, y);               // Top right
+            ctx.lineTo(x + width / 2, y + height);  // Bottom point
+        }
         
-        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        geometry.computeVertexNormals();
+        ctx.closePath();
+        ctx.fill();
+
+        // Draw sides based on their state
+        ctx.lineWidth = 2;
         
-        return geometry;
+        // Draw left side
+        this.drawSide(ctx, triangle, 'left', x, y, width, height);
+        
+        // Draw right side
+        this.drawSide(ctx, triangle, 'right', x, y, width, height);
+        
+        // Draw third side (top/bottom)
+        this.drawSide(ctx, triangle, 'third', x, y, width, height);
     }
-    
-    createWallBetween(pointA, pointB, height, thickness, baseMaterial) {
-        const length = pointA.distanceTo(pointB);
-        const geometry = new THREE.BoxGeometry(length, height, thickness);
-        const material = baseMaterial.clone();
 
-        const wall = new THREE.Mesh(geometry, material);
+    /**
+     * Draw a specific side of a triangle
+     */
+    drawSide(ctx, triangle, side, x, y, width, height) {
+        const sideState = triangle.getSideState(side);
+        
+        // Set color based on side state
+        if (sideState === 'mirror') {
+            ctx.strokeStyle = '#00ff00'; // Bright green for mirrors
+        } else if (sideState === 'empty') {
+            ctx.strokeStyle = '#555555'; // Medium gray for empty
+        } else {
+            ctx.strokeStyle = '#777777'; // Light gray for default
+        }
 
-        // Position at the midpoint between the two points
-        const midpoint = new THREE.Vector3().addVectors(pointA, pointB).multiplyScalar(0.5);
-        wall.position.copy(midpoint);
-        wall.position.y = height / 2;
-
-        // Rotate to align with the edge
-        const dx = pointB.x - pointA.x;
-        const dz = pointB.z - pointA.z;
-        wall.rotation.y = Math.atan2(dz, dx);
-
-        return wall;
+        ctx.beginPath();
+        
+        if (triangle.pointsUp) {
+            // Up-pointing triangle
+            switch (side) {
+                case 'left':
+                    ctx.moveTo(x, y + height);
+                    ctx.lineTo(x + width / 2, y);
+                    break;
+                case 'right':
+                    ctx.moveTo(x + width / 2, y);
+                    ctx.lineTo(x + width, y + height);
+                    break;
+                case 'third': // bottom
+                    ctx.moveTo(x, y + height);
+                    ctx.lineTo(x + width, y + height);
+                    break;
+            }
+        } else {
+            // Down-pointing triangle
+            switch (side) {
+                case 'left':
+                    ctx.moveTo(x + width / 2, y + height);
+                    ctx.lineTo(x, y);
+                    break;
+                case 'right':
+                    ctx.moveTo(x + width, y);
+                    ctx.lineTo(x + width / 2, y + height);
+                    break;
+                case 'third': // top
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(x + width, y);
+                    break;
+            }
+        }
+        
+        ctx.stroke();
     }
     
     render() {
-        this.renderer.render(this.scene, this.camera);
+        this.drawGrid();
+        this.needsRedraw = false;
     }
     
     handleResize(width, height) {
-        // Minimap stays fixed size, but we could adjust position if needed
-        // For now, CSS handles the positioning
+        // Keep minimap at a reasonable fixed size
+        const minimapSize = Math.min(Math.min(width, height) * 0.3, 300);
+        this.resize(minimapSize, minimapSize);
     }
     
     destroy() {
-        // Cleanup
-        if (this.renderer.domElement.parentElement) {
-            this.renderer.domElement.parentElement.removeChild(this.renderer.domElement);
+        if (this.canvas && this.canvas.parentNode) {
+            this.canvas.parentNode.removeChild(this.canvas);
         }
-        this.renderer.dispose();
     }
 }
 

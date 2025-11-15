@@ -50,15 +50,34 @@
         import { SceneRenderer } from './scripts/rendering/scene_render.js';
         import { UIOverlay } from './scripts/rendering/ui_overlay.js';
         import { SimpleMovement } from './scripts/simple_movement.js';
+        import { TriangularGrid } from './scripts/grid_system.js';
 
         const canvas = document.getElementById('gameCanvas');
         const minimapContainer = document.getElementById('minimapContainer');
+
+        // Create a default map
+        const defaultMap = `
+e|e|m e|e|e e|e|m e|e|e e|e|e e|e|e
+e|m|e m|e|e e|m|e e|e|e e|m|e m|e|m
+e|e|e e|e|m e|e|e e|e|e m|e|e e|e|e
+m|e|e e|e|e e|m|e e|e|e e|e|m e|e|e
+e|e|m e|e|e e|e|e m|e|e e|e|e e|m|e
+e|e|e m|e|m e|e|e e|e|e e|m|e e|e|e
+e|m|e e|e|e e|e|m e|e|e e|e|e m|e|e
+        `.trim();
+
+        // Initialize the grid
+        const grid = new TriangularGrid();
+        grid.initializeFromMap(defaultMap);
 
         // Initialize game systems
         const gameLoop = new GameLoop();
         const sceneRenderer = new SceneRenderer(canvas);
         const uiOverlay = new UIOverlay(minimapContainer);
         const movement = new SimpleMovement();
+
+        // Set the grid in the UI overlay
+        uiOverlay.setGrid(grid);
 
         // Connect movement to scene renderer
         movement.setSceneRenderer(sceneRenderer);
@@ -67,6 +86,7 @@
         gameLoop.setSceneRenderer(sceneRenderer);
         gameLoop.setUIOverlay(uiOverlay);
         gameLoop.setMovement(movement);
+        gameLoop.setGrid(grid);
 
         // Handle window resize
         function handleResize() {
@@ -81,9 +101,11 @@
 
         // Debug info
         console.log('🎮 Mirror Murder - Game Started');
+        console.log('🗺️  Grid System initialized');
+        console.log(`   └─ ${grid.getRowCount()} rows loaded`);
         console.log('🎬 Scene Renderer initialized (Raycast Shader)');
         console.log('📊 UI Overlay initialized');
-        console.log('   └─ Minimap: top-right corner');
+        console.log('   └─ Minimap: top-right corner (grid visualization active)');
         console.log('🕹️  Movement: Click to lock mouse, WASD to move, Shift to sprint');
     </script>
 </body>
