@@ -441,6 +441,199 @@ class TriangularGrid {
         
         return bitmaskData;
     }
+
+    /**
+     * Generate a random connected grid with exactly one boundary exit
+     * and an approximate mirror density.
+     *
+     * Guarantees:
+     * - All triangles are mutually reachable (no unreachable areas)
+     * - Exactly one boundary edge is open (the exit)
+     * - Mirror density is clamped to the feasible range given the above constraints
+     *
+     * @param {number} numRows
+     * @param {number} trianglesPerRow
+     * @param {number} mirrorDensity - desired fraction of edges that are mirrors (0..1)
+     * @param {number|string|null} rngSeed - optional seed for deterministic generation
+     */
+    generateRandomGrid(numRows, trianglesPerRow, mirrorDensity = 0.65, rngSeed = null) {
+        // Build grid topology first
+        this.initialize(numRows, trianglesPerRow);
+
+        const trianglesCount = numRows * trianglesPerRow;
+        const sideNames = ['left', 'right', 'third'];
+
+        // Seeded RNG (Mulberry32). Falls back to Math.random when no seed provided.
+        const rng = (() => {
+            if (rngSeed === null || rngSeed === undefined) return Math.random;
+
+            let seedNum;
+            if (typeof rngSeed === 'number') {
+                seedNum = (rngSeed >>> 0);
+            } else {
+                const s = String(rngSeed);
+                let h = 2166136261 >>> 0; // FNV-1a like hash
+                for (let i = 0; i < s.length; i++) {
+                    h ^= s.charCodeAt(i);
+                    h = Math.imul(h, 16777619);
+                }
+                seedNum = h >>> 0;
+            }
+            function mulberry32(a) {
+                return function() {
+                    let t = a += 0x6D2B79F5;
+                    t = Math.imul(t ^ (t >>> 15), t | 1);
+                    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+                    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+                };
+            }
+            return mulberry32(seedNum);
+        })();
+
+        const pickRandom = (arr) => arr[Math.floor(rng() * arr.length)];
+        const shuffle = (arr) => {
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(rng() * (i + 1));
+                const tmp = arr[i];
+                arr[i] = arr[j];
+                arr[j] = tmp;
+            }
+            return arr;
+        };
+
+        // Start with all sides set to MIRROR
+        for (let r = 0; r < numRows; r++) {
+            for (let c = 0; c < trianglesPerRow; c++) {
+                const t = this.getTriangle(r, c);
+                t.setAllSides({
+                    left: SideType.MIRROR,
+                    right: SideType.MIRROR,
+                    third: SideType.MIRROR
+                }, true);
+            }
+        }
+
+        // Collect unique edges and a map for quick lookup by triangle pair
+        const internalEdges = [];
+        const boundaryEdges = [];
+        const edgeByPair = new Map(); // key: "r1,c1|r2,c2" (both orders) -> edge
+
+        for (let row = 0; row < numRows; row++) {
+            for (let col = 0; col < trianglesPerRow; col++) {
+                const tri = this.getTriangle(row, col);
+                const triKey = `${row},${col}`;
+
+                sideNames.forEach(side => {
+                    const neighbor = tri.neighbors[side];
+                    if (neighbor) {
+                        const neighborKey = `${neighbor.row},${neighbor.col}`;
+                        const neighborSide = tri.getNeighborCorrespondingSide(side);
+                        // Canonicalize so each internal edge appears once
+                        if (triKey < neighborKey) {
+                            const edge = {
+                                a: tri,
+                                aSide: side,
+                                b: neighbor,
+                                bSide: neighborSide,
+                                isBoundary: false
+                            };
+                            internalEdges.push(edge);
+                            edgeByPair.set(`${triKey}|${neighborKey}`, edge);
+                            edgeByPair.set(`${neighborKey}|${triKey}`, edge);
+                        }
+                    } else {
+                        boundaryEdges.push({
+                            a: tri,
+                            aSide: side,
+                            isBoundary: true
+                        });
+                    }
+                });
+            }
+        }
+
+        const totalEdges = internalEdges.length + boundaryEdges.length;
+        const minOpenEdges = trianglesCount;              // (N-1) internal for connectivity + 1 boundary exit
+        const maxOpenEdges = internalEdges.length + 1;    // all internal open + exactly one boundary exit
+        const maxDensity = (totalEdges - minOpenEdges) / totalEdges;
+        const minDensity = (totalEdges - maxOpenEdges) / totalEdges;
+
+        let desiredDensity = Number.isFinite(mirrorDensity) ? Math.max(0, Math.min(1, mirrorDensity)) : 0.65;
+        if (desiredDensity > maxDensity) {
+            console.warn(`[TriangularGrid] mirrorDensity ${desiredDensity.toFixed(3)} > max feasible ${maxDensity.toFixed(3)}; clamping.`);
+            desiredDensity = maxDensity;
+        }
+        if (desiredDensity < minDensity) {
+            console.warn(`[TriangularGrid] mirrorDensity ${desiredDensity.toFixed(3)} < min feasible ${minDensity.toFixed(3)} (one exit constraint); clamping.`);
+            desiredDensity = minDensity;
+        }
+
+        // Helper to open an edge (updates both triangles for internal edges)
+        const openEdge = (edge) => {
+            edge.a.setSideState(edge.aSide, SideType.EMPTY, true);
+        };
+
+        // Randomized DFS to carve a spanning tree (ensures connectivity, no unreachable areas)
+        const startRow = Math.floor(numRows / 2);
+        const startCol = Math.floor(trianglesPerRow / 2);
+        const start = this.getTriangle(startRow, startCol);
+        const visited = new Set([`${start.row},${start.col}`]);
+        const stack = [start];
+
+        while (stack.length > 0) {
+            const current = stack[stack.length - 1];
+            const curKey = `${current.row},${current.col}`;
+
+            const candidates = [];
+            sideNames.forEach(side => {
+                const nb = current.neighbors[side];
+                if (!nb) return;
+                const nbKey = `${nb.row},${nb.col}`;
+                if (!visited.has(nbKey)) {
+                    const e = edgeByPair.get(`${curKey}|${nbKey}`);
+                    if (e) candidates.push({ nb, edge: e });
+                }
+            });
+
+            if (candidates.length === 0) {
+                stack.pop();
+                continue;
+            }
+
+            const choice = pickRandom(candidates);
+            openEdge(choice.edge);
+            visited.add(`${choice.nb.row},${choice.nb.col}`);
+            stack.push(choice.nb);
+        }
+
+        // Exactly one boundary exit
+        const exitEdge = pickRandom(boundaryEdges);
+        exitEdge.a.setSideState(exitEdge.aSide, SideType.EMPTY, false);
+
+        // Adjust to target density by opening additional INTERNAL edges only (preserve single exit)
+        const targetOpenEdges = Math.round(totalEdges * (1 - desiredDensity));
+        let currentOpenEdges = minOpenEdges; // after spanning tree + single exit
+
+        if (targetOpenEdges > currentOpenEdges) {
+            const closedInternal = internalEdges.filter(e => e.a.getSideState(e.aSide) === SideType.MIRROR);
+            shuffle(closedInternal);
+            const toOpen = Math.min(targetOpenEdges - currentOpenEdges, closedInternal.length);
+            for (let i = 0; i < toOpen; i++) {
+                openEdge(closedInternal[i]);
+            }
+            currentOpenEdges += toOpen;
+        }
+
+        console.log('🧩 Random grid generated', {
+            rows: numRows,
+            cols: trianglesPerRow,
+            triangles: trianglesCount,
+            totalEdges,
+            internalEdges: internalEdges.length,
+            boundaryEdges: boundaryEdges.length,
+            mirrorDensity: desiredDensity
+        });
+    }
 }
 
 // Export for ES6 modules

@@ -10,6 +10,7 @@ class MazeMinimap {
         this.grid = null;
         this.gameState = null;
         this.needsRedraw = true;
+        this.zoomFactor = 0.4; // Lower than 1.0 to show more of the maze
         
         this.initCanvas();
     }
@@ -118,6 +119,10 @@ class MazeMinimap {
             triangleWidth = triangleWidthFromHeight;
             triangleHeight = triangleHeightFromHeight;
         }
+
+        // Apply zoom - smaller values zoom out, larger values zoom in
+        triangleWidth *= this.zoomFactor;
+        triangleHeight *= this.zoomFactor;
         
         const rowHeight = triangleHeight;
 
