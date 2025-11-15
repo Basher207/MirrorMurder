@@ -22,7 +22,7 @@ class SimpleMovement {
         this.mouseMovementX = 0;
         
         // Movement settings
-        this.moveSpeed = 1.5; // Units per second
+        this.moveSpeed = 0.8; // Units per second
         this.sprintMultiplier = 2.0;
         this.mouseSensitivity = 0.002; // Radians per pixel
         

@@ -21,10 +21,10 @@ varying vec2 vUv;
 
 const float FLOOR_Y = 0.0;
 const float CEILING_Y = 1.8;
-const float MAX_DIST = 100.0;
+const float MAX_DIST = 1000.0;
 const float EPSILON = 0.001;
 const int MAX_BOUNCES = 20;
-const float PLAYER_QUAD_WIDTH = 0.6;
+const float PLAYER_QUAD_WIDTH = 0.45;
 const float PLAYER_QUAD_HEIGHT = 1.05;
 const float PLAYER_QUAD_Y_OFFSET = 0.525; // Center height of quad above floor
 
@@ -243,6 +243,29 @@ bool rayFloorIntersection(vec3 origin, vec3 dir, out float t, out vec3 hitPos) {
 }
 
 // ================================================================
+// Ray-Ceiling Intersection
+// ================================================================
+
+bool rayCeilingIntersection(vec3 origin, vec3 dir, out float t, out vec3 hitPos) {
+    // Ray: P = origin + t * dir
+    // Ceiling plane: y = CEILING_Y
+    // Solve: origin.y + t * dir.y = CEILING_Y
+    
+    if (abs(dir.y) < EPSILON) {
+        return false; // Ray parallel to ceiling
+    }
+    
+    t = (CEILING_Y - origin.y) / dir.y;
+    
+    if (t < 0.0) {
+        return false; // Ceiling behind camera
+    }
+    
+    hitPos = origin + t * dir;
+    return true;
+}
+
+// ================================================================
 // Noise Functions
 // ================================================================
 
@@ -380,7 +403,7 @@ vec3 renderFloor(vec3 hitPos) {
 // Check a single grid cell for wall intersections
 void checkGridCell(ivec2 gridPos, vec3 rayOrigin, vec3 rayDir, inout float closestT, 
                    inout vec3 closestHit, inout vec3 closestNormal, inout int hitEdge, 
-                   inout bool hitWall, inout bool hitPlayer, inout vec2 wallUV) {
+                   inout bool hitWall, inout bool hitPlayer, inout vec2 wallUV, inout ivec2 hitGridPos) {
     // Skip out-of-bounds cells entirely
     if (gridPos.x < 0 || gridPos.x >= int(uMazeSize.x) || 
         gridPos.y < 0 || gridPos.y >= int(uMazeSize.y)) {
@@ -432,6 +455,7 @@ void checkGridCell(ivec2 gridPos, vec3 rayOrigin, vec3 rayDir, inout float close
                     hitWall = true;
                     hitPlayer = false; // Wall is closer, so not player
                     wallUV = uv;
+                    hitGridPos = gridPos; // Store which grid cell was hit
                 }
             }
         }
@@ -460,6 +484,7 @@ vec3 castRay(vec3 origin, vec3 dir) {
         bool hitPlayer = false;
         vec2 playerUV = vec2(0.0);
         vec2 wallUV = vec2(0.0);
+        ivec2 hitGridPos = ivec2(0, 0); // Track which grid cell was hit
         
         // DDA Grid Traversal - only check cells the ray passes through
         ivec2 currentGrid = worldToGrid(rayOrigin);
@@ -499,13 +524,11 @@ vec3 castRay(vec3 origin, vec3 dir) {
         // Traverse grid using DDA
         const int MAX_STEPS = 100; // Limit traversal steps to prevent infinite loops
         for (int step = 0; step < MAX_STEPS; step++) {
-            // Check current cell and its neighbors. The checkGridCell function has its own
-            // bounds check, so we can call it even when currentGrid is outside the maze.
-            checkGridCell(currentGrid, rayOrigin, rayDir, closestT, closestHit, closestNormal, hitEdge, hitWall, hitPlayer, wallUV);
-            checkGridCell(currentGrid + ivec2(1, 0), rayOrigin, rayDir, closestT, closestHit, closestNormal, hitEdge, hitWall, hitPlayer, wallUV);
-            checkGridCell(currentGrid + ivec2(-1, 0), rayOrigin, rayDir, closestT, closestHit, closestNormal, hitEdge, hitWall, hitPlayer, wallUV);
-            checkGridCell(currentGrid + ivec2(0, 1), rayOrigin, rayDir, closestT, closestHit, closestNormal, hitEdge, hitWall, hitPlayer, wallUV);
-            checkGridCell(currentGrid + ivec2(0, -1), rayOrigin, rayDir, closestT, closestHit, closestNormal, hitEdge, hitWall, hitPlayer, wallUV);
+            // Check current cell AND the cell to the left (col-1).
+            // Triangles are 2 grid cells wide (TRIANGLE_SIZE / (TRIANGLE_SIZE * 0.5) = 2),
+            // so a triangle at col-1 can extend into the current column.
+            checkGridCell(currentGrid, rayOrigin, rayDir, closestT, closestHit, closestNormal, hitEdge, hitWall, hitPlayer, wallUV, hitGridPos);
+            checkGridCell(currentGrid + ivec2(-1, 0), rayOrigin, rayDir, closestT, closestHit, closestNormal, hitEdge, hitWall, hitPlayer, wallUV, hitGridPos);
             
             // If we found a hit closer than our current traversal distance, stop
             if (hitWall && closestT < min(tMax.x, tMax.y)) {
@@ -531,45 +554,49 @@ vec3 castRay(vec3 origin, vec3 dir) {
         
         // Check player quad (only for reflected rays, bounce > 0)
         bool playerFrontFacing = false;
+        vec4 playerColor = vec4(0.0);
         if (bounce > 0) {
             float playerT;
             vec3 playerHit;
             vec2 tempPlayerUV;
             bool tempFrontFacing;
             if (rayPlayerQuadIntersection(rayOrigin, rayDir, playerT, playerHit, tempPlayerUV, tempFrontFacing)) {
-                // If player is closer than wall (or no wall hit), use player
+                // If player is closer than wall (or no wall hit), check if pixel is opaque
                 if (playerT < closestT && playerT > EPSILON) {
-                    closestT = playerT;
-                    closestHit = playerHit;
-                    playerUV = tempPlayerUV;
-                    playerFrontFacing = tempFrontFacing;
-                    hitPlayer = true;
-                    hitWall = false; // Player is closer than wall
+                    // Sample the texture to check alpha
+                    vec4 tempPlayerColor = tempFrontFacing ? 
+                        texture2D(uPlayerTexture, tempPlayerUV) : 
+                        texture2D(uPlayerBackTexture, tempPlayerUV);
+                    
+                    // Only count as hit if pixel is not fully transparent
+                    if (tempPlayerColor.a > 0.1) {
+                        closestT = playerT;
+                        closestHit = playerHit;
+                        playerUV = tempPlayerUV;
+                        playerFrontFacing = tempFrontFacing;
+                        playerColor = tempPlayerColor;
+                        hitPlayer = true;
+                        hitWall = false; // Player is closer than wall
+                    }
+                    // If transparent, ignore player hit and let wall/mirror be used
                 }
             }
         }
         
-        // Handle player hit (closer than wall)
+        // Handle player hit (closer than wall and opaque)
         if (hitPlayer) {
-            // Sample appropriate player texture based on which side we're looking at
-            vec4 playerColor = playerFrontFacing ? 
-                texture2D(uPlayerTexture, playerUV) : 
-                texture2D(uPlayerBackTexture, playerUV);
+            // We already sampled the player texture above
+            accumulatedColor += playerColor.rgb * playerColor.a * reflectivity;
             
-            // Apply alpha blending - if transparent, continue to background
-            if (playerColor.a > 0.1) {
-                accumulatedColor += playerColor.rgb * playerColor.a * reflectivity;
-                
-                // If not fully opaque, blend with background
-                if (playerColor.a < 0.99) {
-                    reflectivity *= (1.0 - playerColor.a);
-                } else {
-                    break;
-                }
+            // If not fully opaque, blend with background
+            if (playerColor.a < 0.99) {
+                reflectivity *= (1.0 - playerColor.a);
+                // Continue ray through semi-transparent parts
+                rayOrigin = closestHit + rayDir * EPSILON * 10.0;
+                continue;
+            } else {
+                break;
             }
-            // Continue ray through transparent parts
-            rayOrigin = closestHit + rayDir * EPSILON * 10.0;
-            continue;
         }
         
         // Handle wall hit (check if mirror or solid wall)
@@ -579,17 +606,33 @@ vec3 castRay(vec3 origin, vec3 dir) {
             bool isMirror = mirrorData.g > 0.7;
             
             if (isMirror) {
-                // Mirror surface - reflect the ray
+                // Mirror surface - reflect the ray with unique wave distortion
+                
+                // Generate unique wave parameters for this mirror based on grid position and edge
+                // Use a hash to create deterministic but varied parameters
+                float mirrorSeed = float(hitGridPos.x * 73 + hitGridPos.y * 37 + hitEdge * 19);
+                float mirrorHash1 = hash(vec2(mirrorSeed, mirrorSeed * 1.618));
+                float mirrorHash2 = hash(vec2(mirrorSeed * 2.718, mirrorSeed * 0.577));
+                float mirrorHash3 = hash(vec2(mirrorSeed * 1.414, mirrorSeed * 3.142));
+                
+                // Unique parameters for each mirror
+                float waveOffset = mirrorHash1 * 6.283; // 0 to 2*PI
+                float waveScale = 0.15 + mirrorHash2 * 0.025; // 0.015 to 0.04 (subtle)
+                float waveFrequency = 11.5 + mirrorHash3 * 3.0; // 1.5 to 4.5
+                
+                // Apply vertical sin wave distortion to the normal
+                float wave = sin(closestHit.y * waveFrequency + waveOffset) * waveScale;
+                vec3 distortedNormal = normalize(closestNormal + vec3(0.0, wave, 0.0));
+                
                 // Apply mirror tint for next bounce
                 // This gradually darkens the reflection with each bounce
-
                 // if (bounce > 1) {
                     reflectivity *= mirrorTint;
                 // }
                 
-                // Reflect the ray
-                rayDir = reflect(rayDir, closestNormal);
-                rayOrigin = closestHit + closestNormal * EPSILON * 10.0; // Offset to avoid self-intersection
+                // Reflect the ray with the distorted normal
+                rayDir = reflect(rayDir, distortedNormal);
+                rayOrigin = closestHit + distortedNormal * EPSILON * 10.0; // Offset to avoid self-intersection
                 
                 continue;
             } else {
@@ -599,14 +642,32 @@ vec3 castRay(vec3 origin, vec3 dir) {
             }
         }
         
-        // No wall or player hit - check floor/sky and finish
+        // No wall or player hit - check ceiling and floor
+        float ceilingT;
+        vec3 ceilingHit;
         float floorT;
         vec3 floorHit;
-        if (rayFloorIntersection(rayOrigin, rayDir, floorT, floorHit)) {
-            if (floorT < MAX_DIST) {
-                accumulatedColor += renderFloor(floorHit) * reflectivity;
-                break;
-            }
+        
+        bool hitCeiling = rayCeilingIntersection(rayOrigin, rayDir, ceilingT, ceilingHit);
+        bool hitFloor = rayFloorIntersection(rayOrigin, rayDir, floorT, floorHit);
+        
+        // Check which surface is closer
+        if (hitCeiling && ceilingT < MAX_DIST && (!hitFloor || ceilingT < floorT)) {
+            // Hit ceiling - reflect the ray
+            vec3 ceilingNormal = vec3(0.0, -1.0, 0.0); // Ceiling normal points down
+            
+            // Apply subtle reflectivity tint (slightly reduce brightness)
+            reflectivity *= vec3(0.85, 0.85, 0.9); // Slight blue tint
+            
+            // Reflect the ray off the ceiling
+            rayDir = reflect(rayDir, ceilingNormal);
+            rayOrigin = ceilingHit + ceilingNormal * EPSILON * 10.0; // Offset to avoid self-intersection
+            
+            continue;
+        } else if (hitFloor && floorT < MAX_DIST) {
+            // Hit floor
+            accumulatedColor += renderFloor(floorHit) * reflectivity;
+            break;
         }
         
         // No hit - render sky

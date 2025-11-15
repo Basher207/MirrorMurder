@@ -16,9 +16,8 @@ class SceneRenderer {
         this.canvas = canvas;
         this.isReady = false;
         
-        // Render at a lower internal resolution for performance
-        // while keeping the canvas visually full-screen via CSS.
-        this.renderScale = 0.5; // 0.5 = half resolution
+        // Render at full resolution
+        this.renderScale = 1.0;
         this.renderWidth = window.innerWidth * this.renderScale;
         this.renderHeight = window.innerHeight * this.renderScale;
         
@@ -38,7 +37,7 @@ class SceneRenderer {
         
         // Player position and orientation
         this.playerPos = new THREE.Vector3(5, 0.8, 5); // Y is eye height
-        this.playerYaw = 0; // Rotation around Y axis (radians)
+        this.playerYaw = Math.PI / 2; // Rotation around Y axis (radians)
         this.playerPitch = 0; // Look up/down (radians)
         
         // Camera settings
@@ -80,13 +79,35 @@ class SceneRenderer {
         // Regenerate maze texture with grid data
         this.mazeTexture = this.createMazeTexture();
         
+        // Calculate center of maze and position player there
+        const mazeBitmask = grid.toMazeBitmask();
+        const mazeWidth = mazeBitmask[0].length;
+        const mazeHeight = mazeBitmask.length;
+        
+        // Calculate center position in world coordinates
+        // The maze spans from x=0 to approximately mazeWidth * TRIANGLE_SIZE * 0.5
+        // Each column adds TRIANGLE_SIZE * 0.5 to the width
+        // But the first triangle extends from x=0 to x=TRIANGLE_SIZE
+        const totalWidth = (mazeWidth - 1) * TRIANGLE_SIZE * 0.5 + TRIANGLE_SIZE;
+        const totalHeight = mazeHeight * TRIANGLE_HEIGHT;
+        
+        const centerX = totalWidth / 2;
+        const centerZ = totalHeight / 2;
+        
+        // Set player position to center (Y is eye height)
+        this.playerPos.set(centerX, 0.8, centerZ);
+        
+        console.log(`   └─ Maze dimensions: ${mazeWidth} cols x ${mazeHeight} rows`);
+        console.log(`   └─ World size: ${totalWidth.toFixed(2)} x ${totalHeight.toFixed(2)}`);
+        console.log(`   └─ Player positioned at center: (${centerX.toFixed(2)}, 0.8, ${centerZ.toFixed(2)})`);
+        
         // Update shader if it's ready
         if (this.fullscreenQuad) {
-            const mazeBitmask = grid.toMazeBitmask();
-            const newMazeSize = new THREE.Vector2(mazeBitmask[0].length, mazeBitmask.length);
+            const newMazeSize = new THREE.Vector2(mazeWidth, mazeHeight);
             
             this.fullscreenQuad.material.uniforms.uMazeTexture.value = this.mazeTexture;
             this.fullscreenQuad.material.uniforms.uMazeSize.value = newMazeSize;
+            this.fullscreenQuad.material.uniforms.uPlayerPos.value.copy(this.playerPos);
             
             console.log('   └─ Shader texture and size updated to', newMazeSize.x, 'x', newMazeSize.y);
         }
