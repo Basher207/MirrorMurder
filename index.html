@@ -16,44 +16,71 @@
             height: 100vh;
             overflow: hidden;
             background: #000;
+            font-family: 'Courier New', monospace;
         }
 
         #gameCanvas {
             display: block;
             width: 100%;
             height: 100%;
-            cursor: none;
+        }
+        
+        #minimapContainer {
+            position: absolute;
+            top: 0;
+            right: 0;
+            pointer-events: none;
         }
     </style>
 </head>
 <body>
     <canvas id="gameCanvas"></canvas>
+    <div id="minimapContainer"></div>
 
-    <script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import { GameLoop } from './scripts/game_loop.js';
+        import { MazeMinimap } from './scripts/rendering/maze_minimap.js';
+
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
+        const minimapContainer = document.getElementById('minimapContainer');
 
         // Set canvas resolution to match display size
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
+            
+            // Notify game loop of resize
+            if (gameLoop) {
+                gameLoop.handleResize(window.innerWidth, window.innerHeight);
+            }
         }
 
+        // Initialize game systems
+        const gameLoop = new GameLoop(canvas, ctx);
+        const minimap = new MazeMinimap(minimapContainer);
+
+        // Register minimap with game loop
+        gameLoop.setMinimap(minimap);
+
+        // Setup resize handler
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
 
-        // Game loop
-        function gameLoop() {
-            // Clear canvas
-            ctx.fillStyle = '#1a1a1a';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // Start the game
+        gameLoop.start();
 
-            // Game rendering will go here
-
-            requestAnimationFrame(gameLoop);
-        }
-
-        gameLoop();
+        // Debug info
+        console.log('🎮 Mirror Murder - Game Started');
+        console.log('📊 Minimap initialized in top-right corner');
     </script>
 </body>
 </html>
