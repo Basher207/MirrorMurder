@@ -106,13 +106,13 @@ class SimpleMovement {
     update(deltaTime) {
         if (!this.mouseLocked) return;
         
-        // Calculate movement direction based on input
+        // Calculate movement direction based on input (in local space)
         const moveDir = new THREE.Vector3(0, 0, 0);
         
-        if (this.keys.w) moveDir.z += 1;
-        if (this.keys.s) moveDir.z -= 1;
-        if (this.keys.a) moveDir.x += 1;
-        if (this.keys.d) moveDir.x -= 1;
+        if (this.keys.w) moveDir.z += 1;  // Forward
+        if (this.keys.s) moveDir.z -= 1;  // Backward
+        if (this.keys.a) moveDir.x -= 1;  // Left
+        if (this.keys.d) moveDir.x += 1;  // Right
         
         // Normalize diagonal movement
         if (moveDir.lengthSq() > 0) {

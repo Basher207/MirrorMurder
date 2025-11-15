@@ -80,6 +80,93 @@ vec3 renderSky(vec3 rayDir) {
 }
 
 // ================================================================
+// Maze Helpers
+// ================================================================
+
+// Get triangle grid coordinates from world position
+ivec2 worldToGrid(vec3 pos) {
+    int col = int(floor(pos.x / uTriangleSize));
+    int row = int(floor(pos.z / uTriangleHeight));
+    return ivec2(col, row);
+}
+
+// Check if triangle points up (true) or down (false)
+bool isPointingUp(ivec2 gridPos) {
+    return mod(float(gridPos.y + gridPos.x), 2.0) < 0.5;
+}
+
+// Get maze data from texture
+vec4 getMazeCell(ivec2 gridPos) {
+    if (gridPos.x < 0 || gridPos.x >= int(uMazeSize.x) || 
+        gridPos.y < 0 || gridPos.y >= int(uMazeSize.y)) {
+        return vec4(0.0, 1.0, 0.0, 1.0); // Out of bounds = all walls
+    }
+    
+    vec2 uv = (vec2(gridPos) + 0.5) / uMazeSize;
+    return texture2D(uMazeTexture, uv);
+}
+
+// Get triangle vertices in world space
+void getTriangleVertices(ivec2 gridPos, out vec3 v0, out vec3 v1, out vec3 v2) {
+    float x = float(gridPos.x) * uTriangleSize;
+    float z = float(gridPos.y) * uTriangleHeight;
+    
+    if (isPointingUp(gridPos)) {
+        // Pointing UP triangle
+        v0 = vec3(x, 0.0, z);                                        // Top
+        v1 = vec3(x - uTriangleSize * 0.5, 0.0, z + uTriangleHeight); // Bottom-left
+        v2 = vec3(x + uTriangleSize * 0.5, 0.0, z + uTriangleHeight); // Bottom-right
+    } else {
+        // Pointing DOWN triangle
+        v0 = vec3(x, 0.0, z + uTriangleHeight);                      // Bottom
+        v1 = vec3(x - uTriangleSize * 0.5, 0.0, z);                  // Top-left
+        v2 = vec3(x + uTriangleSize * 0.5, 0.0, z);                  // Top-right
+    }
+}
+
+// ================================================================
+// Ray-Wall Intersection
+// ================================================================
+
+// Ray-vertical wall intersection (wall is a vertical rectangle)
+bool rayWallIntersection(vec3 origin, vec3 dir, vec3 wallStart, vec3 wallEnd, float wallHeight, out float t, out vec3 hitPos) {
+    // Wall is vertical from y=0 to y=wallHeight
+    // Wall edge goes from wallStart (x,z) to wallEnd (x,z)
+    
+    // Convert to 2D line intersection in XZ plane
+    vec2 p1 = wallStart.xz;
+    vec2 p2 = wallEnd.xz;
+    vec2 rayOrigin = origin.xz;
+    vec2 rayDir = dir.xz;
+    
+    // Line segment: p1 + s * (p2 - p1), s in [0,1]
+    // Ray: rayOrigin + t * rayDir
+    // Solve: p1 + s * (p2 - p1) = rayOrigin + t * rayDir
+    
+    vec2 v1 = rayOrigin - p1;
+    vec2 v2 = p2 - p1;
+    vec2 v3 = vec2(-rayDir.y, rayDir.x);
+    
+    float denom = dot(v2, v3);
+    if (abs(denom) < EPSILON) return false; // Parallel
+    
+    // Correct ray parameter t (distance along ray) using cross products
+    // This version ensures walls behind the camera (negative t) are rejected
+    float t2D = dot(v2, vec2(v1.y, -v1.x)) / denom;
+    float s = dot(v1, v3) / denom;
+    
+    if (t2D < EPSILON || s < 0.0 || s > 1.0) return false;
+    
+    // Check if hit is within wall height
+    float hitY = origin.y + dir.y * t2D;
+    if (hitY < FLOOR_Y || hitY > wallHeight) return false;
+    
+    t = t2D;
+    hitPos = origin + dir * t;
+    return true;
+}
+
+// ================================================================
 // Ray-Floor Intersection
 // ================================================================
 
@@ -103,8 +190,25 @@ bool rayFloorIntersection(vec3 origin, vec3 dir, out float t, out vec3 hitPos) {
 }
 
 // ================================================================
-// Floor Rendering
+// Rendering
 // ================================================================
+
+vec3 renderWall(vec3 hitPos, int edgeIndex) {
+    // Flat colored walls based on edge orientation
+    vec3 wallColors[3];
+    wallColors[0] = vec3(0.7, 0.3, 0.3); // Edge 0 - Red
+    wallColors[1] = vec3(0.3, 0.7, 0.3); // Edge 1 - Green
+    wallColors[2] = vec3(0.3, 0.3, 0.7); // Edge 2 - Blue
+    
+    vec3 baseColor = wallColors[edgeIndex];
+    
+    // Distance-based fog
+    float dist = length(hitPos - uPlayerPos);
+    float fog = exp(-dist * 0.1);
+    baseColor = mix(vec3(0.5, 0.7, 0.9), baseColor, fog);
+    
+    return baseColor;
+}
 
 vec3 renderFloor(vec3 hitPos) {
     // Checkerboard pattern based on world position
@@ -130,14 +234,75 @@ vec3 renderFloor(vec3 hitPos) {
 // ================================================================
 
 vec3 castRay(vec3 origin, vec3 dir) {
-    // Check floor intersection
-    float t;
-    vec3 hitPos;
+    float closestT = MAX_DIST;
+    vec3 closestHit = vec3(0.0);
+    int hitEdge = -1;
+    bool hitWall = false;
     
-    if (rayFloorIntersection(origin, dir, t, hitPos)) {
-        // Check if hit is within reasonable distance
-        if (t < MAX_DIST) {
-            return renderFloor(hitPos);
+    // Check all maze cells for wall intersections
+    // For a small maze (5x5), this is fast enough
+    for (int row = 0; row < int(uMazeSize.y); row++) {
+        for (int col = 0; col < int(uMazeSize.x); col++) {
+            ivec2 gridPos = ivec2(col, row);
+            
+            // Get maze cell data
+            vec4 cellData = getMazeCell(gridPos);
+            float wallBits = cellData.g * 7.0; // Convert back from normalized
+            int walls = int(wallBits + 0.5);
+            
+            // Skip if no walls
+            if (walls == 0) continue;
+            
+            // Get triangle vertices
+            vec3 v0, v1, v2;
+            getTriangleVertices(gridPos, v0, v1, v2);
+            
+            // Check each edge for walls
+            for (int edgeIdx = 0; edgeIdx < 3; edgeIdx++) {
+                // Check if this edge has a wall
+                int edgeBit = 1 << edgeIdx;
+                if ((walls & edgeBit) != 0) {
+                    vec3 edgeStart, edgeEnd;
+                    
+                    // Get edge vertices (edge N connects vertex (N+1) to vertex (N+2))
+                    if (edgeIdx == 0) {
+                        edgeStart = v1;
+                        edgeEnd = v2;
+                    } else if (edgeIdx == 1) {
+                        edgeStart = v2;
+                        edgeEnd = v0;
+                    } else {
+                        edgeStart = v0;
+                        edgeEnd = v1;
+                    }
+                    
+                    // Test ray against wall
+                    float t;
+                    vec3 hitPos;
+                    if (rayWallIntersection(origin, dir, edgeStart, edgeEnd, CEILING_Y, t, hitPos)) {
+                        if (t < closestT && t > EPSILON) {
+                            closestT = t;
+                            closestHit = hitPos;
+                            hitEdge = edgeIdx;
+                            hitWall = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // If we hit a wall, render it
+    if (hitWall) {
+        return renderWall(closestHit, hitEdge);
+    }
+    
+    // Check floor intersection
+    float floorT;
+    vec3 floorHit;
+    if (rayFloorIntersection(origin, dir, floorT, floorHit)) {
+        if (floorT < MAX_DIST) {
+            return renderFloor(floorHit);
         }
     }
     
