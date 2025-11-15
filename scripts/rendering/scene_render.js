@@ -28,7 +28,7 @@ class SceneRenderer {
         this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
         
         // Player position and orientation
-        this.playerPos = new THREE.Vector3(5, 3.8, 5); // Y is eye height
+        this.playerPos = new THREE.Vector3(5, 0.8, 5); // Y is eye height
         this.playerYaw = 0; // Rotation around Y axis (radians)
         this.playerPitch = 0; // Look up/down (radians)
         
@@ -41,9 +41,10 @@ class SceneRenderer {
         // Create maze texture (will use fallback until grid is set)
         this.mazeTexture = this.createMazeTexture();
         
-        // Load player texture
+        // Load player textures (front and back)
         this.playerTexture = null;
-        this.loadPlayerTexture();
+        this.playerBackTexture = null;
+        this.loadPlayerTextures();
         
         // Create fullscreen shader (async)
         this.init();
@@ -156,8 +157,10 @@ class SceneRenderer {
         };
     }
     
-    loadPlayerTexture() {
+    loadPlayerTextures() {
         const loader = new THREE.TextureLoader();
+        
+        // Load front texture (player.png)
         loader.load(
             './assets/player.png',
             (texture) => {
@@ -172,11 +175,34 @@ class SceneRenderer {
                     this.fullscreenQuad.material.uniforms.uPlayerTexture.value = texture;
                 }
                 
-                console.log('✅ Player texture loaded');
+                console.log('✅ Player front texture loaded');
             },
             undefined,
             (error) => {
-                console.error('❌ Failed to load player texture:', error);
+                console.error('❌ Failed to load player front texture:', error);
+            }
+        );
+        
+        // Load back texture (player_back.png)
+        loader.load(
+            './assets/player_back.png',
+            (texture) => {
+                texture.minFilter = THREE.LinearFilter;
+                texture.magFilter = THREE.LinearFilter;
+                texture.wrapS = THREE.ClampToEdgeWrapping;
+                texture.wrapT = THREE.ClampToEdgeWrapping;
+                this.playerBackTexture = texture;
+                
+                // Update uniform if shader is already loaded
+                if (this.fullscreenQuad) {
+                    this.fullscreenQuad.material.uniforms.uPlayerBackTexture.value = texture;
+                }
+                
+                console.log('✅ Player back texture loaded');
+            },
+            undefined,
+            (error) => {
+                console.error('❌ Failed to load player back texture:', error);
             }
         );
     }
@@ -210,6 +236,7 @@ class SceneRenderer {
             uniforms: {
                 uMazeTexture: { value: this.mazeTexture },
                 uPlayerTexture: { value: this.playerTexture },
+                uPlayerBackTexture: { value: this.playerBackTexture },
                 uMazeSize: { value: new THREE.Vector2(mazeWidth, mazeHeight) },
                 uTriangleSize: { value: TRIANGLE_SIZE },
                 uTriangleHeight: { value: TRIANGLE_HEIGHT },

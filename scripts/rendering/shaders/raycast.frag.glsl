@@ -1,5 +1,6 @@
 uniform sampler2D uMazeTexture;
 uniform sampler2D uPlayerTexture;
+uniform sampler2D uPlayerBackTexture;
 uniform vec2 uMazeSize;
 uniform float uTriangleSize;
 uniform float uTriangleHeight;
@@ -17,7 +18,7 @@ varying vec2 vUv;
 // ================================================================
 
 const float FLOOR_Y = 0.0;
-const float CEILING_Y = 3.0;
+const float CEILING_Y = 1.5;
 const float MAX_DIST = 100.0;
 const float EPSILON = 0.001;
 const int MAX_BOUNCES = 15;
@@ -56,32 +57,7 @@ vec3 rotateX(vec3 v, float angle) {
 // ================================================================
 
 vec3 renderSky(vec3 rayDir) {
-    // Procedural sky with gradient and simple clouds
-    float horizon = rayDir.y;
-    
-    // Sky gradient
-    vec3 skyTop = vec3(0.1, 0.2, 0.4);
-    vec3 skyHorizon = vec3(0.5, 0.7, 0.9);
-    vec3 skyColor = mix(skyHorizon, skyTop, max(0.0, horizon));
-    
-    // Simple cloud-like noise
-    float cloudPattern = sin(rayDir.x * 10.0 + uTime * 0.1) * 
-                        cos(rayDir.z * 10.0 + uTime * 0.15) * 
-                        sin(rayDir.y * 5.0);
-    cloudPattern = smoothstep(0.3, 0.8, cloudPattern * 0.5 + 0.5);
-    
-    // Add clouds only above horizon
-    if (horizon > 0.0) {
-        skyColor = mix(skyColor, vec3(1.0, 1.0, 1.0), cloudPattern * 0.3 * horizon);
-    }
-    
-    // Sun glow
-    vec3 sunDir = normalize(vec3(0.5, 0.3, 0.8));
-    float sunDot = max(0.0, dot(rayDir, sunDir));
-    float sun = pow(sunDot, 32.0);
-    skyColor += vec3(1.0, 0.9, 0.7) * sun * 0.5;
-    
-    return skyColor;
+    return vec3(0.0, 0.0, 0.0); // Pitch black
 }
 
 // ================================================================
@@ -185,16 +161,16 @@ bool rayWallIntersection(vec3 origin, vec3 dir, vec3 wallStart, vec3 wallEnd, fl
 // Ray-Player Quad Intersection
 // ================================================================
 
-bool rayPlayerQuadIntersection(vec3 origin, vec3 dir, out float t, out vec3 hitPos, out vec2 uv) {
-    // Player quad is centered at player position, billboard-facing the ray
-    // This ensures the player always faces the viewer (mirror)
+bool rayPlayerQuadIntersection(vec3 origin, vec3 dir, out float t, out vec3 hitPos, out vec2 uv, out bool isFrontFacing) {
+    // Player quad is centered at player position, oriented based on player's yaw
     // Quad is vertical, with width PLAYER_QUAD_WIDTH and height PLAYER_QUAD_HEIGHT
     
     vec3 quadCenter = vec3(uPlayerPos.x, FLOOR_Y + PLAYER_QUAD_Y_OFFSET, uPlayerPos.z);
     
-    // Billboard technique: quad normal points toward the ray origin (always face the camera)
-    vec3 toCamera = origin - quadCenter;
-    vec3 quadNormal = normalize(vec3(toCamera.x, 0.0, toCamera.z)); // Keep vertical (no Y tilt)
+    // Quad faces in the direction the player is facing (based on yaw)
+    // Player yaw: 0 = facing +Z, rotates around Y axis (negated for opposite rotation)
+    vec3 playerForward = vec3(sin(-uPlayerYaw), 0.0, cos(-uPlayerYaw));
+    vec3 quadNormal = playerForward; // Quad normal points in player's facing direction
     
     // Right vector (perpendicular to normal in XZ plane)
     vec3 quadRight = normalize(vec3(quadNormal.z, 0.0, -quadNormal.x));
@@ -205,6 +181,11 @@ bool rayPlayerQuadIntersection(vec3 origin, vec3 dir, out float t, out vec3 hitP
     // Ray-plane intersection
     float denom = dot(dir, quadNormal);
     if (abs(denom) < EPSILON) return false; // Ray parallel to quad
+    
+    // Determine if we're looking at front or back based on the ray's origin (the virtual camera on the mirror)
+    vec3 cameraToPlayer = quadCenter - origin;
+    float cameraAlignment = dot(normalize(vec3(cameraToPlayer.x, 0.0, cameraToPlayer.z)), quadNormal);
+    isFrontFacing = cameraAlignment < 0.0; // We see the front if the viewpoint is opposite to the player's facing direction
     
     t = dot(quadCenter - origin, quadNormal) / denom;
     if (t < EPSILON) return false; // Quad behind camera
@@ -372,16 +353,19 @@ vec3 castRay(vec3 origin, vec3 dir) {
         }
         
         // Check player quad (only for reflected rays, bounce > 0)
+        bool playerFrontFacing = false;
         if (bounce > 0) {
             float playerT;
             vec3 playerHit;
             vec2 tempPlayerUV;
-            if (rayPlayerQuadIntersection(rayOrigin, rayDir, playerT, playerHit, tempPlayerUV)) {
+            bool tempFrontFacing;
+            if (rayPlayerQuadIntersection(rayOrigin, rayDir, playerT, playerHit, tempPlayerUV, tempFrontFacing)) {
                 // If player is closer than wall (or no wall hit), use player
                 if (playerT < closestT && playerT > EPSILON) {
                     closestT = playerT;
                     closestHit = playerHit;
                     playerUV = tempPlayerUV;
+                    playerFrontFacing = tempFrontFacing;
                     hitPlayer = true;
                     hitWall = false; // Player is closer than wall
                 }
@@ -390,8 +374,10 @@ vec3 castRay(vec3 origin, vec3 dir) {
         
         // Handle player hit (closer than wall)
         if (hitPlayer) {
-            // Sample player texture
-            vec4 playerColor = texture2D(uPlayerTexture, playerUV);
+            // Sample appropriate player texture based on which side we're looking at
+            vec4 playerColor = playerFrontFacing ? 
+                texture2D(uPlayerTexture, playerUV) : 
+                texture2D(uPlayerBackTexture, playerUV);
             
             // Apply alpha blending - if transparent, continue to background
             if (playerColor.a > 0.1) {
