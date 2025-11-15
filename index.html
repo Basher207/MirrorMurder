@@ -47,41 +47,44 @@
 
     <script type="module">
         import { GameLoop } from './scripts/game_loop.js';
+        import { SceneRenderer } from './scripts/rendering/scene_render.js';
         import { UIOverlay } from './scripts/rendering/ui_overlay.js';
+        import { SimpleMovement } from './scripts/simple_movement.js';
 
         const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
         const minimapContainer = document.getElementById('minimapContainer');
 
-        // Set canvas resolution to match display size
-        function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-            
-            // Notify game loop of resize
-            if (gameLoop) {
-                gameLoop.handleResize(window.innerWidth, window.innerHeight);
-            }
+        // Initialize game systems
+        const gameLoop = new GameLoop();
+        const sceneRenderer = new SceneRenderer(canvas);
+        const uiOverlay = new UIOverlay(minimapContainer);
+        const movement = new SimpleMovement();
+
+        // Connect movement to scene renderer
+        movement.setSceneRenderer(sceneRenderer);
+
+        // Register systems with game loop
+        gameLoop.setSceneRenderer(sceneRenderer);
+        gameLoop.setUIOverlay(uiOverlay);
+        gameLoop.setMovement(movement);
+
+        // Handle window resize
+        function handleResize() {
+            gameLoop.handleResize(window.innerWidth, window.innerHeight);
         }
 
-        // Initialize game systems
-        const gameLoop = new GameLoop(canvas, ctx);
-        const uiOverlay = new UIOverlay(minimapContainer);
-
-        // Register UI overlay with game loop
-        gameLoop.setUIOverlay(uiOverlay);
-
-        // Setup resize handler
-        resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
+        window.addEventListener('resize', handleResize);
+        handleResize();
 
         // Start the game
         gameLoop.start();
 
         // Debug info
         console.log('🎮 Mirror Murder - Game Started');
+        console.log('🎬 Scene Renderer initialized (Raycast Shader)');
         console.log('📊 UI Overlay initialized');
         console.log('   └─ Minimap: top-right corner');
+        console.log('🕹️  Movement: Click to lock mouse, WASD to move, Shift to sprint');
     </script>
 </body>
 </html>

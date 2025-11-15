@@ -1,7 +1,17 @@
 // Maze Minimap Renderer using Three.js
 // Renders a top-down view of the triangular maze in the top-right corner
 
-import { maze, WALLS, MAZE_ROWS, MAZE_COLS, hasWall } from '../maze.js';
+import { 
+    MAZE_ROWS, 
+    MAZE_COLS, 
+    TRIANGLE_SIZE,
+    TRIANGLE_HEIGHT,
+    getCell,
+    hasWall,
+    isPointingUp,
+    getTriangleVertices,
+    getEdgeVertices
+} from '../maze.js';
 import * as THREE from 'three';
 
 class MazeMinimap {
@@ -62,10 +72,8 @@ class MazeMinimap {
     }
     
     buildMaze() {
-        // Triangle dimensions
-        const triangleSize = 1.5;
-        const triangleHeight = (Math.sqrt(3) / 2) * triangleSize;
-        const halfSize = triangleSize / 2;
+        // Use maze constants scaled down for minimap
+        const scale = 0.75;
         
         // Materials
         const floorMaterial = new THREE.MeshStandardMaterial({ 
@@ -83,107 +91,78 @@ class MazeMinimap {
         });
         
         // Center the maze
-        const offsetX = -(MAZE_COLS * triangleSize) / 2;
-        const offsetZ = -(MAZE_ROWS * triangleHeight) / 2;
+        const offsetX = -(MAZE_COLS * TRIANGLE_SIZE * scale) / 2;
+        const offsetZ = -(MAZE_ROWS * TRIANGLE_HEIGHT * scale) / 2;
         
         // Create floor and walls for each triangle
         for (let row = 0; row < MAZE_ROWS; row++) {
             for (let col = 0; col < MAZE_COLS; col++) {
-                const cellValue = maze[row][col];
+                const cellValue = getCell(row, col);
+                const up = isPointingUp(row, col);
                 
-                // Calculate position
-                const isPointingUp = (row + col) % 2 === 0;
-                const x = col * triangleSize + offsetX;
-                const z = row * triangleHeight + offsetZ;
+                // Get triangle vertices from maze.js (world space)
+                const worldVertices = getTriangleVertices(row, col);
                 
-                // Create floor triangle
-                const floorGeometry = this.createTriangleGeometry(triangleSize, isPointingUp);
+                // Scale and offset for minimap, convert to THREE.Vector3
+                const vertices = worldVertices.map(v => new THREE.Vector3(
+                    v.x * scale + offsetX,
+                    0,
+                    v.z * scale + offsetZ
+                ));
+                
+                // Create floor triangle using actual vertices
+                const floorGeometry = this.createTriangleFromVertices(vertices);
                 const floorMesh = new THREE.Mesh(floorGeometry, floorMaterial);
-                floorMesh.position.set(x, 0, z);
                 this.scene.add(floorMesh);
                 
-                // Precompute triangle corner positions in world space (XZ plane)
-                let pA, pB, pC;
-                if (isPointingUp) {
-                    // Upward triangle: apex at top, base at bottom
-                    pA = new THREE.Vector3(x, 0.01, z - triangleHeight / 2);          // top
-                    pB = new THREE.Vector3(x - halfSize, 0.01, z + triangleHeight / 2); // bottom left
-                    pC = new THREE.Vector3(x + halfSize, 0.01, z + triangleHeight / 2); // bottom right
-                } else {
-                    // Downward triangle: apex at bottom, base at top
-                    pA = new THREE.Vector3(x, 0.01, z + triangleHeight / 2);          // bottom
-                    pB = new THREE.Vector3(x - halfSize, 0.01, z - triangleHeight / 2); // top left
-                    pC = new THREE.Vector3(x + halfSize, 0.01, z - triangleHeight / 2); // top right
-                }
-                
-                // Create walls based on cell value
+                // Create walls based on edge data
                 const wallHeight = 0.5;
-                const wallThickness = 0.1;
+                const wallThickness = 0.08;
                 
-                if (hasWall(cellValue, WALLS.NORTH)) {
-                    // Horizontal edge at the "north" side of the triangle
-                    const wall = this.createWallBetween(
-                        isPointingUp ? pB : pB, // left point of the top/base edge
-                        isPointingUp ? pC : pC, // right point of the top/base edge
-                        wallHeight,
-                        wallThickness,
-                        wallMaterial
-                    );
-                    this.scene.add(wall);
-                }
-                
-                if (hasWall(cellValue, WALLS.SOUTH_WEST)) {
-                    // Edge from apex to left base corner
-                    const wall = this.createWallBetween(
-                        pA,
-                        pB,
-                        wallHeight,
-                        wallThickness,
-                        wallMaterial
-                    );
-                    this.scene.add(wall);
-                }
-                
-                if (hasWall(cellValue, WALLS.SOUTH_EAST)) {
-                    // Edge from apex to right base corner
-                    const wall = this.createWallBetween(
-                        pA,
-                        pC,
-                        wallHeight,
-                        wallThickness,
-                        wallMaterial
-                    );
-                    this.scene.add(wall);
+                // Check each of the 3 edges
+                for (let edgeIndex = 0; edgeIndex < 3; edgeIndex++) {
+                    if (hasWall(cellValue, edgeIndex)) {
+                        // Get edge vertices from maze.js
+                        const worldEdge = getEdgeVertices(row, col, edgeIndex);
+                        const edgeStart = new THREE.Vector3(
+                            worldEdge[0].x * scale + offsetX,
+                            0,
+                            worldEdge[0].z * scale + offsetZ
+                        );
+                        const edgeEnd = new THREE.Vector3(
+                            worldEdge[1].x * scale + offsetX,
+                            0,
+                            worldEdge[1].z * scale + offsetZ
+                        );
+                        
+                        // Create wall between these points
+                        const wall = this.createWallBetween(
+                            edgeStart, 
+                            edgeEnd, 
+                            wallHeight, 
+                            wallThickness, 
+                            wallMaterial
+                        );
+                        this.scene.add(wall);
+                    }
                 }
             }
         }
     }
     
-    createTriangleGeometry(size, pointingUp) {
-        // Triangle geometry directly in the XZ plane (y = 0)
-        const height = (Math.sqrt(3) / 2) * size;
+    createTriangleFromVertices(vertices) {
+        // vertices is an array of 3 THREE.Vector3 objects
         const geometry = new THREE.BufferGeometry();
-
-        let vertices;
-        if (pointingUp) {
-            // Apex at top, base at bottom
-            vertices = new Float32Array([
-                0, 0, -height / 2,          // Top
-                -size / 2, 0, height / 2,   // Bottom left
-                size / 2, 0, height / 2     // Bottom right
-            ]);
-        } else {
-            // Apex at bottom, base at top
-            vertices = new Float32Array([
-                0, 0, height / 2,           // Bottom
-                -size / 2, 0, -height / 2,  // Top left
-                size / 2, 0, -height / 2    // Top right
-            ]);
-        }
-
-        geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+        
+        const positions = new Float32Array([
+            vertices[0].x, vertices[0].y, vertices[0].z,
+            vertices[1].x, vertices[1].y, vertices[1].z,
+            vertices[2].x, vertices[2].y, vertices[2].z
+        ]);
+        
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         geometry.computeVertexNormals();
-
+        
         return geometry;
     }
     
