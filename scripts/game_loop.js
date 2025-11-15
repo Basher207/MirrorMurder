@@ -10,15 +10,24 @@ class GameLoop {
         this.deltaTime = 0;
         
         // Subsystems (to be populated)
-        this.minimap = null;
+        this.uiOverlay = null;
+        
+        // Game state
+        this.gameState = {
+            // Future game state will go here
+            // player: null,
+            // enemies: [],
+            // items: [],
+            // etc.
+        };
         
         // Bind the loop
         this.loop = this.loop.bind(this);
     }
     
     // Register subsystems
-    setMinimap(minimap) {
-        this.minimap = minimap;
+    setUIOverlay(uiOverlay) {
+        this.uiOverlay = uiOverlay;
     }
     
     // Start the game loop
@@ -54,7 +63,14 @@ class GameLoop {
     // Update all game systems
     update(deltaTime) {
         // Future game logic updates will go here
-        // Player movement, AI, physics, etc.
+        // - Player movement, AI, physics, etc.
+        // - Collision detection
+        // - Game state updates
+        
+        // Update UI with current game state
+        if (this.uiOverlay) {
+            this.uiOverlay.update(deltaTime, this.gameState);
+        }
     }
     
     // Render all visual elements
@@ -63,20 +79,45 @@ class GameLoop {
         this.ctx.fillStyle = '#1a1a1a';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         
-        // Main game rendering will go here
-        // First-person view, UI elements, etc.
+        // ====== GAME RENDERING ======
+        // This is where the main game scene will be rendered
+        // - First-person 3D view
+        // - World geometry
+        // - Characters and objects
+        // - Lighting and effects
+        this.renderGame();
         
-        // Render minimap (if available)
-        if (this.minimap) {
-            this.minimap.render();
+        // ====== UI OVERLAY RENDERING (Always on top) ======
+        // Render UI elements last so they appear on top of everything
+        if (this.uiOverlay) {
+            this.uiOverlay.render();
         }
+    }
+    
+    // Render the main game scene
+    renderGame() {
+        // Placeholder for game rendering
+        // Future implementation will include:
+        // - Three.js first-person renderer
+        // - Maze 3D view
+        // - Player view
+        // - Entities (enemies, items, etc.)
+        
+        // For now, just show a simple placeholder
+        this.ctx.fillStyle = '#2a2a2a';
+        this.ctx.fillRect(50, 50, 200, 100);
+        this.ctx.fillStyle = '#00aaff';
+        this.ctx.font = '16px Courier New';
+        this.ctx.fillText('Game View', 90, 105);
     }
     
     // Handle window resize
     handleResize(width, height) {
-        if (this.minimap) {
-            this.minimap.handleResize(width, height);
+        if (this.uiOverlay) {
+            this.uiOverlay.handleResize(width, height);
         }
+        
+        // Handle resize for other game systems (3D renderer, etc.)
     }
 }
 

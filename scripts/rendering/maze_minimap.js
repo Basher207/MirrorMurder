@@ -16,11 +16,17 @@ class MazeMinimap {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x2a2a2a);
         
+        // Compute camera frustum based on maze size so everything fits nicely
+        const triangleSize = 1.5;
+        const triangleHeight = (Math.sqrt(3) / 2) * triangleSize;
+        const worldWidth = MAZE_COLS * triangleSize;
+        const worldHeight = MAZE_ROWS * triangleHeight;
+        const halfExtent = Math.max(worldWidth, worldHeight) * 0.6;
+
         // Create orthographic camera for top-down view
-        const aspect = 1; // Square minimap
         this.camera = new THREE.OrthographicCamera(
-            -5, 5,  // left, right
-            5, -5,  // top, bottom
+            -halfExtent, halfExtent,  // left, right
+            halfExtent, -halfExtent,  // top, bottom
             0.1, 100
         );
         this.camera.position.set(0, 10, 0);
@@ -59,6 +65,7 @@ class MazeMinimap {
         // Triangle dimensions
         const triangleSize = 1.5;
         const triangleHeight = (Math.sqrt(3) / 2) * triangleSize;
+        const halfSize = triangleSize / 2;
         
         // Materials
         const floorMaterial = new THREE.MeshStandardMaterial({ 
@@ -93,49 +100,59 @@ class MazeMinimap {
                 const floorGeometry = this.createTriangleGeometry(triangleSize, isPointingUp);
                 const floorMesh = new THREE.Mesh(floorGeometry, floorMaterial);
                 floorMesh.position.set(x, 0, z);
-                floorMesh.rotation.x = -Math.PI / 2;
                 this.scene.add(floorMesh);
+                
+                // Precompute triangle corner positions in world space (XZ plane)
+                let pA, pB, pC;
+                if (isPointingUp) {
+                    // Upward triangle: apex at top, base at bottom
+                    pA = new THREE.Vector3(x, 0.01, z - triangleHeight / 2);          // top
+                    pB = new THREE.Vector3(x - halfSize, 0.01, z + triangleHeight / 2); // bottom left
+                    pC = new THREE.Vector3(x + halfSize, 0.01, z + triangleHeight / 2); // bottom right
+                } else {
+                    // Downward triangle: apex at bottom, base at top
+                    pA = new THREE.Vector3(x, 0.01, z + triangleHeight / 2);          // bottom
+                    pB = new THREE.Vector3(x - halfSize, 0.01, z - triangleHeight / 2); // top left
+                    pC = new THREE.Vector3(x + halfSize, 0.01, z - triangleHeight / 2); // top right
+                }
                 
                 // Create walls based on cell value
                 const wallHeight = 0.5;
                 const wallThickness = 0.1;
                 
                 if (hasWall(cellValue, WALLS.NORTH)) {
-                    const wall = this.createWall(triangleSize, wallHeight, wallThickness);
-                    if (isPointingUp) {
-                        wall.position.set(x, wallHeight / 2, z - triangleHeight / 2);
-                        wall.rotation.y = 0;
-                    } else {
-                        wall.position.set(x, wallHeight / 2, z + triangleHeight / 2);
-                        wall.rotation.y = 0;
-                    }
-                    wall.material = wallMaterial.clone();
+                    // Horizontal edge at the "north" side of the triangle
+                    const wall = this.createWallBetween(
+                        isPointingUp ? pB : pB, // left point of the top/base edge
+                        isPointingUp ? pC : pC, // right point of the top/base edge
+                        wallHeight,
+                        wallThickness,
+                        wallMaterial
+                    );
                     this.scene.add(wall);
                 }
                 
                 if (hasWall(cellValue, WALLS.SOUTH_WEST)) {
-                    const wall = this.createWall(triangleSize, wallHeight, wallThickness);
-                    if (isPointingUp) {
-                        wall.position.set(x - triangleSize / 4, wallHeight / 2, z + triangleHeight / 4);
-                        wall.rotation.y = Math.PI / 3;
-                    } else {
-                        wall.position.set(x - triangleSize / 4, wallHeight / 2, z - triangleHeight / 4);
-                        wall.rotation.y = -Math.PI / 3;
-                    }
-                    wall.material = wallMaterial.clone();
+                    // Edge from apex to left base corner
+                    const wall = this.createWallBetween(
+                        pA,
+                        pB,
+                        wallHeight,
+                        wallThickness,
+                        wallMaterial
+                    );
                     this.scene.add(wall);
                 }
                 
                 if (hasWall(cellValue, WALLS.SOUTH_EAST)) {
-                    const wall = this.createWall(triangleSize, wallHeight, wallThickness);
-                    if (isPointingUp) {
-                        wall.position.set(x + triangleSize / 4, wallHeight / 2, z + triangleHeight / 4);
-                        wall.rotation.y = -Math.PI / 3;
-                    } else {
-                        wall.position.set(x + triangleSize / 4, wallHeight / 2, z - triangleHeight / 4);
-                        wall.rotation.y = Math.PI / 3;
-                    }
-                    wall.material = wallMaterial.clone();
+                    // Edge from apex to right base corner
+                    const wall = this.createWallBetween(
+                        pA,
+                        pC,
+                        wallHeight,
+                        wallThickness,
+                        wallMaterial
+                    );
                     this.scene.add(wall);
                 }
             }
@@ -143,34 +160,51 @@ class MazeMinimap {
     }
     
     createTriangleGeometry(size, pointingUp) {
+        // Triangle geometry directly in the XZ plane (y = 0)
         const height = (Math.sqrt(3) / 2) * size;
         const geometry = new THREE.BufferGeometry();
-        
+
         let vertices;
         if (pointingUp) {
+            // Apex at top, base at bottom
             vertices = new Float32Array([
-                0, height / 2, 0,           // Top
-                -size / 2, -height / 2, 0,  // Bottom left
-                size / 2, -height / 2, 0    // Bottom right
+                0, 0, -height / 2,          // Top
+                -size / 2, 0, height / 2,   // Bottom left
+                size / 2, 0, height / 2     // Bottom right
             ]);
         } else {
+            // Apex at bottom, base at top
             vertices = new Float32Array([
-                0, -height / 2, 0,          // Bottom
-                -size / 2, height / 2, 0,   // Top left
-                size / 2, height / 2, 0     // Top right
+                0, 0, height / 2,           // Bottom
+                -size / 2, 0, -height / 2,  // Top left
+                size / 2, 0, -height / 2    // Top right
             ]);
         }
-        
+
         geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
         geometry.computeVertexNormals();
-        
+
         return geometry;
     }
     
-    createWall(length, height, thickness) {
+    createWallBetween(pointA, pointB, height, thickness, baseMaterial) {
+        const length = pointA.distanceTo(pointB);
         const geometry = new THREE.BoxGeometry(length, height, thickness);
-        const material = new THREE.MeshStandardMaterial({ color: 0x00aaff });
-        return new THREE.Mesh(geometry, material);
+        const material = baseMaterial.clone();
+
+        const wall = new THREE.Mesh(geometry, material);
+
+        // Position at the midpoint between the two points
+        const midpoint = new THREE.Vector3().addVectors(pointA, pointB).multiplyScalar(0.5);
+        wall.position.copy(midpoint);
+        wall.position.y = height / 2;
+
+        // Rotate to align with the edge
+        const dx = pointB.x - pointA.x;
+        const dz = pointB.z - pointA.z;
+        wall.rotation.y = Math.atan2(dz, dx);
+
+        return wall;
     }
     
     render() {

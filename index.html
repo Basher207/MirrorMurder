@@ -47,7 +47,7 @@
 
     <script type="module">
         import { GameLoop } from './scripts/game_loop.js';
-        import { MazeMinimap } from './scripts/rendering/maze_minimap.js';
+        import { UIOverlay } from './scripts/rendering/ui_overlay.js';
 
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
@@ -66,10 +66,10 @@
 
         // Initialize game systems
         const gameLoop = new GameLoop(canvas, ctx);
-        const minimap = new MazeMinimap(minimapContainer);
+        const uiOverlay = new UIOverlay(minimapContainer);
 
-        // Register minimap with game loop
-        gameLoop.setMinimap(minimap);
+        // Register UI overlay with game loop
+        gameLoop.setUIOverlay(uiOverlay);
 
         // Setup resize handler
         resizeCanvas();
@@ -80,7 +80,8 @@
 
         // Debug info
         console.log('🎮 Mirror Murder - Game Started');
-        console.log('📊 Minimap initialized in top-right corner');
+        console.log('📊 UI Overlay initialized');
+        console.log('   └─ Minimap: top-right corner');
     </script>
 </body>
 </html>
