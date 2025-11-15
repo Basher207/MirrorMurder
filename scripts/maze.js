@@ -17,21 +17,18 @@ const EDGE = {
 };
 
 // Maze data: 2D array where each value is a bitmask of walls
-// Bit 0 (1): Edge 0 has wall
-// Bit 1 (2): Edge 1 has wall
-// Bit 2 (4): Edge 2 has wall
+// Bit 0 (1): Edge 0 has wall (third edge)
+// Bit 1 (2): Edge 1 has wall (left edge)
+// Bit 2 (4): Edge 2 has wall (right edge)
+// Generated from TriangularGrid map format: left|right|third
 const mazeData = [
-    [7, 1, 5, 1, 5],  // Row 0
-    [6, 0, 4, 0, 4],  // Row 1
-    // [7, 0, 5, 0, 5, 2, 5, 0, 4, 2, 5, 0, 7],  // Row 2
-    // [6, 0, 4, 0, 4, 0, 4, 0, 4, 0, 4, 0, 3],  // Row 3
-    // [7, 2, 5, 0, 5, 1, 5, 0, 5, 0, 5, 2, 7],  // Row 4
-    // [6, 0, 4, 0, 4, 0, 4, 0, 4, 0, 4, 0, 3],  // Row 5
-    // [7, 0, 5, 2, 5, 0, 5, 2, 5, 0, 5, 0, 7],  // Row 6
-    // [6, 0, 4, 0, 4, 0, 4, 0, 4, 0, 4, 0, 3],  // Row 7
-    // [7, 0, 5, 0, 5, 0, 5, 0, 5, 0, 5, 0, 7],  // Row 8
-    // [6, 0, 4, 0, 4, 0, 4, 0, 4, 0, 4, 0, 3],  // Row 9
-    // [7, 3, 7, 3, 7, 3, 7, 3, 7, 3, 7, 3, 7],  // Row 10
+    [1, 0, 1, 0, 0, 0],  // Row 0
+    [4, 2, 4, 0, 4, 3],  // Row 1
+    [0, 1, 0, 0, 2, 0],  // Row 2
+    [2, 0, 4, 0, 1, 0],  // Row 3
+    [1, 0, 0, 2, 0, 4],  // Row 4
+    [0, 3, 0, 0, 4, 0],  // Row 5
+    [4, 0, 1, 0, 0, 2],  // Row 6
 ];
 
 const MAZE_ROWS = mazeData.length;

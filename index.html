@@ -78,6 +78,9 @@ e|m|e e|e|e e|e|m e|e|e e|e|e m|e|e
 
         // Set the grid in the UI overlay
         uiOverlay.setGrid(grid);
+        
+        // Connect UI overlay to scene renderer for player position
+        uiOverlay.setSceneRenderer(sceneRenderer);
 
         // Connect movement to scene renderer
         movement.setSceneRenderer(sceneRenderer);

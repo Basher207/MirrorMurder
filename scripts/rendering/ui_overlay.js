@@ -13,6 +13,9 @@ class UIOverlay {
         // Grid reference
         this.grid = null;
         
+        // Scene renderer reference (for player position)
+        this.sceneRenderer = null;
+        
         // Initialize UI components
         this.initializeComponents();
         
@@ -44,6 +47,14 @@ class UIOverlay {
         }
     }
     
+    /**
+     * Set the scene renderer reference for accessing player position
+     * @param {SceneRenderer} sceneRenderer - The scene renderer
+     */
+    setSceneRenderer(sceneRenderer) {
+        this.sceneRenderer = sceneRenderer;
+    }
+    
     // Update UI state (called every frame)
     update(deltaTime, gameState) {
         // Update UI elements based on game state
@@ -55,8 +66,12 @@ class UIOverlay {
     
     // Render all UI elements (called every frame after game rendering)
     render() {
-        // Render minimap
-        if (this.minimap) {
+        // Render minimap with player position
+        if (this.minimap && this.sceneRenderer) {
+            const playerPos = this.sceneRenderer.getPlayerPosition();
+            const playerYaw = this.sceneRenderer.playerYaw;
+            this.minimap.render(playerPos, playerYaw);
+        } else if (this.minimap) {
             this.minimap.render();
         }
         

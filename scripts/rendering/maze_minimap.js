@@ -50,7 +50,7 @@ class MazeMinimap {
     /**
      * Draw the triangular grid on the minimap
      */
-    drawGrid() {
+    drawGrid(playerPos = null, playerYaw = null) {
         const ctx = this.canvas.getContext('2d');
         const width = this.canvas.width;
         const height = this.canvas.height;
@@ -92,6 +92,9 @@ class MazeMinimap {
         const triangleHeight = (Math.sqrt(3) / 2) * triangleWidth;
         const rowHeight = triangleHeight; // Each row takes full height
 
+        // Store scale for player position calculation
+        const worldToScreenScale = triangleWidth / 2.0; // World units to screen pixels
+
         // Draw each triangle
         for (let row = 0; row < numRows; row++) {
             const rowLength = this.grid.getRowLength(row);
@@ -108,6 +111,11 @@ class MazeMinimap {
 
                 this.drawTriangle(ctx, triangle, x, y, triangleWidth, triangleHeight);
             }
+        }
+        
+        // Draw player position if available
+        if (playerPos) {
+            this.drawPlayer(ctx, playerPos, playerYaw, padding, worldToScreenScale, triangleHeight);
         }
     }
 
@@ -201,8 +209,44 @@ class MazeMinimap {
         ctx.stroke();
     }
     
-    render() {
-        this.drawGrid();
+    /**
+     * Draw the player position and direction
+     */
+    drawPlayer(ctx, playerPos, playerYaw, padding, worldToScreenScale, triangleHeight) {
+        // Convert world position to screen position
+        // World coordinates: x and z
+        // Screen coordinates: based on triangular grid layout
+        const screenX = padding + (playerPos.x * worldToScreenScale);
+        const screenY = padding + (playerPos.z / (Math.sqrt(3) / 2) * worldToScreenScale);
+        
+        // Draw player circle
+        ctx.fillStyle = '#ff00ff'; // Magenta for player
+        ctx.strokeStyle = '#ffffff'; // White outline
+        ctx.lineWidth = 2;
+        
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        
+        // Draw direction indicator if yaw is provided
+        if (playerYaw !== null && playerYaw !== undefined) {
+            ctx.strokeStyle = '#ff00ff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(screenX, screenY);
+            // Direction line pointing in the direction the player is facing
+            // Yaw is rotation around Y axis, where 0 points in positive Z direction
+            const dirLength = 10;
+            const dirX = screenX - Math.sin(playerYaw) * dirLength;
+            const dirY = screenY + Math.cos(playerYaw) * dirLength;
+            ctx.lineTo(dirX, dirY);
+            ctx.stroke();
+        }
+    }
+    
+    render(playerPos = null, playerYaw = null) {
+        this.drawGrid(playerPos, playerYaw);
         this.needsRedraw = false;
     }
     
