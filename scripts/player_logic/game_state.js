@@ -11,7 +11,8 @@ class GameState {
         this.turnCounter = 0;
         this.player = new Character('player');
         this.enemy = new Character('enemy');
-        this.sceneRenderer = null; // Add scene renderer reference
+        this.sceneRenderer = null;
+        this.gameOver = false; // Add game over flag
     }
     
     /**
@@ -61,15 +62,49 @@ class GameState {
     }
 
     /**
+     * Check if player and enemy are in the same location
+     * @returns {boolean} True if they occupy the same triangle
+     */
+    checkCollision() {
+        const playerPos = this.player.getPosition();
+        const enemyPos = this.enemy.getPosition();
+        
+        return playerPos.row === enemyPos.row && playerPos.col === enemyPos.col;
+    }
+
+    /**
+     * Handle game over - redirect to lose screen
+     */
+    triggerGameOver() {
+        if (this.gameOver) return; // Prevent multiple triggers
+        
+        this.gameOver = true;
+        console.log('💀 GAME OVER - Enemy caught the player!');
+        
+        // Short delay before redirect for dramatic effect
+        setTimeout(() => {
+            window.location.href = 'end_lose.html';
+        }, 500);
+    }
+
+    /**
      * Set the player's position and orientation
      * @param {number} row - Row coordinate
      * @param {number} col - Column coordinate
      * @param {string} orientation - 'left', 'right', or 'third'
      */
     setPlayerPosition(row, col, orientation) {
+        if (this.gameOver) return; // Don't allow moves if game is over
+        
         this.player.row = row;
         this.player.col = col;
         this.player.orientation = orientation;
+        
+        // Check for collision after player moves
+        if (this.checkCollision()) {
+            this.triggerGameOver();
+            return;
+        }
         
         // Update camera position if scene renderer is available
         if (this.sceneRenderer && this.grid) {
@@ -145,10 +180,18 @@ class GameState {
     }
 
     incrementTurn() {
+        if (this.gameOver) return; // Don't process turns if game is over
+        
         this.turnCounter++;
         
         // Move enemy towards player
-        // this.moveEnemyTowardsPlayer();
+        this.moveEnemyTowardsPlayer();
+        
+        // Check for collision after enemy moves
+        if (this.checkCollision()) {
+            this.triggerGameOver();
+            return;
+        }
         
         // Update scene renderer with new player position
         if (this.sceneRenderer) {
