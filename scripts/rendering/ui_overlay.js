@@ -29,11 +29,11 @@ class UIOverlay {
     
     initializeComponents() {
         // Create minimap
-        // this.minimap = new MazeMinimap(this.container);
-        // console.log('UIOverlay: Minimap created');
+        this.minimap = new MazeMinimap(this.container);
+        console.log('UIOverlay: Minimap created');
 
         // Pass game state to minimap
-        // this.minimap.setGameState(gameState);
+        this.minimap.setGameState(gameState);
         
         // Create phase display
         this.phaseDisplay = document.createElement('div');
@@ -77,9 +77,9 @@ class UIOverlay {
     setGrid(grid) {
         this.grid = grid;
         console.log('UIOverlay: Setting grid with', grid.getRowCount(), 'rows');
-        // if (this.minimap) {
-        //     this.minimap.setGrid(grid);
-        // }
+        if (this.minimap) {
+            this.minimap.setGrid(grid);
+        }
     }
     
     /**
@@ -110,13 +110,13 @@ class UIOverlay {
     // Render all UI elements (called every frame after game rendering)
     render() {
         // Render minimap with player position
-        // if (this.minimap && this.sceneRenderer) {
-        //     const playerPos = this.sceneRenderer.getPlayerPosition();
-        //     const playerYaw = this.sceneRenderer.playerYaw;
-        //     this.minimap.render(playerPos, playerYaw);
-        // } else if (this.minimap) {
-        //     this.minimap.render();
-        // }
+        if (this.minimap && this.sceneRenderer) {
+            const playerPos = this.sceneRenderer.getPlayerPosition();
+            const playerYaw = this.sceneRenderer.playerYaw;
+            this.minimap.render(playerPos, playerYaw);
+        } else if (this.minimap) {
+            this.minimap.render();
+        }
         
         // Future UI rendering will go here
         // Canvas-based UI elements can be drawn here
@@ -125,18 +125,18 @@ class UIOverlay {
     
     // Handle window resize
     handleResize(width, height) {
-        // if (this.minimap) {
-        //     this.minimap.handleResize(width, height);
-        // }
+        if (this.minimap) {
+            this.minimap.handleResize(width, height);
+        }
         
         // Handle resize for other UI components
     }
     
     // Cleanup
     destroy() {
-        // if (this.minimap) {
-        //     this.minimap.destroy();
-        // }
+        if (this.minimap) {
+            this.minimap.destroy();
+        }
         
         if (this.phaseDisplay && this.phaseDisplay.parentNode) {
             this.phaseDisplay.parentNode.removeChild(this.phaseDisplay);

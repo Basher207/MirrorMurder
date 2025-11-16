@@ -11,6 +11,9 @@ import {
 } from '../maze.js';
 import { PlayerAnimation } from './player.js';
 
+// Constants
+const EYE_HEIGHT = 0.8; // Player eye height in world units
+
 class SceneRenderer {
     constructor(canvas) {
         this.canvas = canvas;
@@ -37,7 +40,7 @@ class SceneRenderer {
         this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
         
         // Player position and orientation
-        this.playerPos = new THREE.Vector3(5, 0.8, 5); // Y is eye height
+        this.playerPos = new THREE.Vector3(5, EYE_HEIGHT, 5); // Y is eye height
         this.playerYaw = Math.PI / 2; // Rotation around Y axis (radians)
         this.playerPitch = 0; // Look up/down (radians)
         
@@ -96,11 +99,11 @@ class SceneRenderer {
         const centerZ = totalHeight / 2;
         
         // Set player position to center (Y is eye height)
-        this.playerPos.set(centerX + TRIANGLE_SIZE / 3, 0.65, centerZ + TRIANGLE_HEIGHT / 2);
+        this.playerPos.set(centerX + TRIANGLE_SIZE / 3, EYE_HEIGHT, centerZ + TRIANGLE_HEIGHT / 2);
         
         console.log(`   └─ Maze dimensions: ${mazeWidth} cols x ${mazeHeight} rows`);
         console.log(`   └─ World size: ${totalWidth.toFixed(2)} x ${totalHeight.toFixed(2)}`);
-        console.log(`   └─ Player positioned at center: (${centerX.toFixed(2)}, 0.8, ${centerZ.toFixed(2)})`);
+        console.log(`   └─ Player positioned at center: (${centerX.toFixed(2)}, ${EYE_HEIGHT}, ${centerZ.toFixed(2)})`);
         
         // Update shader if it's ready
         if (this.fullscreenQuad) {
@@ -397,5 +400,5 @@ class SceneRenderer {
     }
 }
 
-export { SceneRenderer };
+export { SceneRenderer, EYE_HEIGHT };
 

@@ -1,6 +1,7 @@
 import { TriangularGrid } from '../grid_system.js';
 import { Character } from './character.js';
 import { GridGraph } from './grid_graph.js';
+import { EYE_HEIGHT } from '../rendering/scene_render.js';
 
 class GameState {
     constructor() {
@@ -9,6 +10,16 @@ class GameState {
         this.turnCounter = 0;
         this.player = new Character('player');
         this.enemy = new Character('enemy');
+        this.sceneRenderer = null; // Add scene renderer reference
+    }
+    
+    /**
+     * Set the scene renderer reference for updating camera position
+     * @param {SceneRenderer} sceneRenderer - The scene renderer instance
+     */
+    setSceneRenderer(sceneRenderer) {
+        this.sceneRenderer = sceneRenderer;
+        console.log('GameState: Scene renderer reference set');
     }
 
     /**
@@ -72,7 +83,78 @@ class GameState {
         this.turnCounter++;
         
         // Move enemy towards player
-        this.moveEnemyTowardsPlayer();
+        // this.moveEnemyTowardsPlayer();
+        
+        // Update scene renderer with new player position
+        if (this.sceneRenderer) {
+            const playerPos = this.player.getPosition();
+            const worldPos = this.gridToWorldPosition(playerPos.row, playerPos.col, playerPos.orientation);
+            
+            // Get the triangle to determine if it points up
+            const triangle = this.grid.getTriangle(playerPos.row, playerPos.col);
+            const pointsUp = triangle ? triangle.pointsUp : true;
+            
+            const yaw = this.orientationToYaw(playerPos.orientation, pointsUp);
+            this.sceneRenderer.updatePlayer(worldPos, yaw, 0);
+        }
+    }
+    
+    /**
+     * Convert grid coordinates to world coordinates
+     * @param {number} row - Grid row
+     * @param {number} col - Grid column
+     * @param {string} orientation - Triangle orientation
+     * @returns {THREE.Vector3} World position
+     */
+    gridToWorldPosition(row, col, orientation) {
+        const TRIANGLE_SIZE = 1.0;
+        const TRIANGLE_HEIGHT = Math.sqrt(3) / 2;
+        
+        const x = col * TRIANGLE_SIZE * 0.5 + TRIANGLE_SIZE / 2;
+        const z = row * TRIANGLE_HEIGHT + TRIANGLE_HEIGHT / 2;
+        const y = EYE_HEIGHT; // Eye height
+        
+        return { x, y, z };
+    }
+    
+    /**
+     * Convert orientation to yaw angle
+     * @param {string} orientation - 'left', 'right', or 'third'
+     * @param {boolean} pointsUp - Whether the triangle points up
+     * @returns {number} Yaw angle in radians
+     */
+    orientationToYaw(orientation, pointsUp) {
+        let angle = 0;
+        
+        if (pointsUp) {
+            // Up-pointing triangle - subtract 120 degrees from each
+            switch (orientation) {
+                case 'left':
+                    angle = (120) * Math.PI / 180; // 90 degrees
+                    break;
+                case 'right':
+                    angle = (240) * Math.PI / 180; // 240 degrees
+                    break;
+                case 'third': // Bottom
+                    angle = (0) * Math.PI / 180; // -30 degrees (330 degrees)
+                    break;
+            } 1 
+        } else {
+            // Down-pointing triangle - add 150 degrees to each
+            switch (orientation) {
+                case 'left':
+                    angle = (60) * Math.PI / 180; // 180 degrees
+                    break;
+                case 'right':
+                    angle = (300) * Math.PI / 180; // 300 degrees
+                    break;
+                case 'third': // Top
+                    angle = (180) * Math.PI / 180; // 420 degrees (60 degrees)
+                    break;
+            }
+        }
+        
+        return angle;
     }
 
     /**

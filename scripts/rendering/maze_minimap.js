@@ -97,36 +97,27 @@ class MazeMinimap {
         
         const maxTrianglesPerRow = Math.max(...Array.from({length: numRows}, (_, i) => this.grid.getRowLength(i)));
         
-        // For triangular tessellation:
-        // Each column is half a triangle width, so total width = (maxTriangles / 2) * triangleWidth
-        // Calculate based on both width and height constraints
         const triangleWidthFromWidth = (drawWidth * 2) / maxTrianglesPerRow;
         const triangleHeightFromWidth = (Math.sqrt(3) / 2) * triangleWidthFromWidth;
         const totalHeightFromWidth = numRows * triangleHeightFromWidth;
         
-        // If height-constrained, calculate from height
         const triangleHeightFromHeight = drawHeight / numRows;
         const triangleWidthFromHeight = triangleHeightFromHeight / (Math.sqrt(3) / 2);
         
-        // Use whichever gives us the largest fit
         let triangleWidth, triangleHeight;
         if (totalHeightFromWidth <= drawHeight) {
-            // Width-constrained
             triangleWidth = triangleWidthFromWidth;
             triangleHeight = triangleHeightFromWidth;
         } else {
-            // Height-constrained
             triangleWidth = triangleWidthFromHeight;
             triangleHeight = triangleHeightFromHeight;
         }
 
-        // Apply zoom - smaller values zoom out, larger values zoom in
         triangleWidth *= this.zoomFactor;
         triangleHeight *= this.zoomFactor;
         
         const rowHeight = triangleHeight;
 
-        // Calculate offset to center the grid
         const totalWidth = (maxTrianglesPerRow / 2) * triangleWidth;
         const totalHeight = numRows * rowHeight;
         const offsetX = padding + (drawWidth - totalWidth) / 2;
@@ -140,32 +131,16 @@ class MazeMinimap {
                 const triangle = this.grid.getTriangle(row, col);
                 if (!triangle) continue;
 
-                // X position - each triangle takes half the width space
                 const x = offsetX + (col * triangleWidth / 2);
-                
-                // Y position - each row is offset by the triangle height
                 const y = offsetY + (row * rowHeight);
 
                 this.drawTriangle(ctx, triangle, x, y, triangleWidth, triangleHeight);
             }
         }
 
-        // Draw character markers
+        // Draw character markers (now includes player position and yaw)
         if (this.gameState) {
-            this.drawCharacterMarkers(ctx, offsetX, offsetY, triangleWidth, triangleHeight, rowHeight);
-        }
-        
-        // Draw player position if available
-        if (playerPos) {
-            this.drawPlayer(
-                ctx,
-                playerPos,
-                playerYaw,
-                offsetX,
-                offsetY,
-                triangleWidth,
-                triangleHeight
-            );
+            this.drawCharacterMarkers(ctx, offsetX, offsetY, triangleWidth, triangleHeight, rowHeight, playerPos, playerYaw);
         }
     }
 
@@ -262,17 +237,18 @@ class MazeMinimap {
     /**
      * Draw player and enemy markers
      */
-    drawCharacterMarkers(ctx, offsetX, offsetY, triangleWidth, triangleHeight, rowHeight) {
+    drawCharacterMarkers(ctx, offsetX, offsetY, triangleWidth, triangleHeight, rowHeight, playerPos = null, playerYaw = null) {
         const player = this.gameState.getPlayer();
         const enemy = this.gameState.getEnemy();
 
-        // Draw player (blue dot with arrow)
+        // Draw player (pink dot with direction indicator)
         if (player) {
+            // Always use grid position (same as blue circle logic that worked)
             const playerX = offsetX + (player.col * triangleWidth / 2) + triangleWidth / 2;
             const playerY = offsetY + (player.row * rowHeight) + triangleHeight / 2;
             
-            // Draw the dot
-            ctx.fillStyle = '#0088ff';
+            // Draw the dot (pink/magenta)
+            ctx.fillStyle = '#ff1493'; // Deep pink color
             ctx.beginPath();
             ctx.arc(playerX, playerY, 6, 0, Math.PI * 2);
             ctx.fill();
@@ -282,14 +258,47 @@ class MazeMinimap {
             ctx.lineWidth = 1.5;
             ctx.stroke();
             
-            // Draw orientation arrow
-            const playerTriangle = this.grid.getTriangle(player.row, player.col);
-            if (playerTriangle) {
-                this.drawOrientationArrow(ctx, playerX, playerY, player.orientation, playerTriangle.pointsUp, '#0088ff', triangleWidth, triangleHeight);
+            // Draw direction indicator
+            if (playerYaw !== null && playerYaw !== undefined) {
+                // Use the actual yaw angle from the renderer
+                ctx.strokeStyle = '#ff1493';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(playerX, playerY);
+                const dirLength = 15;
+                const dirX = playerX - Math.sin(playerYaw) * dirLength;
+                const dirY = playerY + Math.cos(playerYaw) * dirLength;
+                ctx.lineTo(dirX, dirY);
+                ctx.stroke();
+                
+                // Draw arrowhead
+                const arrowHeadSize = 6;
+                const headAngle1 = playerYaw - Math.PI * 5 / 6;
+                const headAngle2 = playerYaw + Math.PI * 5 / 6;
+                
+                ctx.fillStyle = '#ff1493';
+                ctx.beginPath();
+                ctx.moveTo(dirX, dirY);
+                ctx.lineTo(
+                    dirX - Math.sin(headAngle1) * arrowHeadSize + Math.cos(playerYaw) * arrowHeadSize,
+                    dirY + Math.cos(headAngle1) * arrowHeadSize + Math.sin(playerYaw) * arrowHeadSize
+                );
+                ctx.lineTo(
+                    dirX - Math.sin(headAngle2) * arrowHeadSize + Math.cos(playerYaw) * arrowHeadSize,
+                    dirY + Math.cos(headAngle2) * arrowHeadSize + Math.sin(playerYaw) * arrowHeadSize
+                );
+                ctx.closePath();
+                ctx.fill();
+            } else {
+                // Fall back to orientation arrow if yaw not available
+                const playerTriangle = this.grid.getTriangle(player.row, player.col);
+                if (playerTriangle) {
+                    this.drawOrientationArrow(ctx, playerX, playerY, player.orientation, playerTriangle.pointsUp, '#ff1493', triangleWidth, triangleHeight);
+                }
             }
         }
 
-        // Draw enemy (red square with arrow)
+        // Draw enemy (red square with arrow) - unchanged
         if (enemy) {
             const enemyX = offsetX + (enemy.col * triangleWidth / 2) + triangleWidth / 2;
             const enemyY = offsetY + (enemy.row * rowHeight) + triangleHeight / 2;
@@ -344,30 +353,31 @@ class MazeMinimap {
         let angle = 0;
         
         // Calculate arrow angle based on orientation and triangle type
+        // Matching game_state.js angles exactly
         if (pointsUp) {
             // Up-pointing triangle
             switch (orientation) {
                 case 'left':
-                    angle = Math.PI; // Left (180 degrees)
+                    angle = 120 * Math.PI / 180; // 120 degrees
                     break;
                 case 'right':
-                    angle = 0; // Right (0 degrees)
+                    angle = 240 * Math.PI / 180; // 240 degrees
                     break;
                 case 'third': // Bottom
-                    angle = Math.PI / 2; // Down (90 degrees)
+                    angle = 0 * Math.PI / 180; // 0 degrees
                     break;
             }
         } else {
             // Down-pointing triangle
             switch (orientation) {
                 case 'left':
-                    angle = Math.PI; // Left (180 degrees)
+                    angle = 60 * Math.PI / 180; // 60 degrees
                     break;
                 case 'right':
-                    angle = 0; // Right (0 degrees)
+                    angle = 300 * Math.PI / 180; // 300 degrees
                     break;
                 case 'third': // Top
-                    angle = Math.PI * 3 / 2; // Up (270 degrees)
+                    angle = 180 * Math.PI / 180; // 180 degrees
                     break;
             }
         }
@@ -398,54 +408,6 @@ class MazeMinimap {
         );
         ctx.closePath();
         ctx.fill();
-    }
-    
-    /**
-     * Draw the player position and direction
-     */
-    drawPlayer(ctx, playerPos, playerYaw, offsetX, offsetY, triangleWidth, triangleHeight) {
-        // Convert world position to screen position using the same world scale
-        // used by the raycast shader / maze.js:
-        //  - X advances by TRIANGLE_SIZE * 0.5 per column
-        //  - Z advances by TRIANGLE_HEIGHT per row
-        //
-        // The grid drawing uses:
-        //  totalWidth  = (maxCols / 2) * triangleWidth
-        //  totalHeight = numRows * triangleHeight
-        //
-        // so the consistent world->screen scaling is:
-        //  scaleX = triangleWidth  / TRIANGLE_SIZE
-        //  scaleY = triangleHeight / TRIANGLE_HEIGHT
-        const scaleX = triangleWidth / TRIANGLE_SIZE;
-        const scaleY = triangleHeight / TRIANGLE_HEIGHT;
-
-        const screenX = offsetX + (playerPos.x * scaleX);
-        const screenY = offsetY + (playerPos.z * scaleY);
-        
-        // Draw player circle
-        ctx.fillStyle = '#ff00ff'; // Magenta for player
-        ctx.strokeStyle = '#ffffff'; // White outline
-        ctx.lineWidth = 2;
-        
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, 5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-        
-        // Draw direction indicator if yaw is provided
-        if (playerYaw !== null && playerYaw !== undefined) {
-            ctx.strokeStyle = '#ff00ff';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(screenX, screenY);
-            // Direction line pointing in the direction the player is facing
-            // Yaw is rotation around Y axis, where 0 points in positive Z direction
-            const dirLength = 10;
-            const dirX = screenX - Math.sin(playerYaw) * dirLength;
-            const dirY = screenY + Math.cos(playerYaw) * dirLength;
-            ctx.lineTo(dirX, dirY);
-            ctx.stroke();
-        }
     }
     
     render(playerPos = null, playerYaw = null) {

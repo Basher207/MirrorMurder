@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import gameState from './player_logic/game_state.js';
 import { TRIANGLE_SIZE, TRIANGLE_HEIGHT } from './maze.js';
+import { EYE_HEIGHT } from './rendering/scene_render.js';
 
 class SimpleMovement {
     constructor() {
@@ -34,7 +35,7 @@ class SimpleMovement {
         this.touchTurnRight = false;
         
         // Player state (will be synced with scene renderer)
-        this.position = new THREE.Vector3(5, 0.8, 5);
+        this.position = new THREE.Vector3(5, EYE_HEIGHT, 5);
         this.yaw = 0;
         this.pitch = 0;
         
