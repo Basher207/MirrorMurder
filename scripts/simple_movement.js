@@ -142,7 +142,7 @@ class SimpleMovement {
         const xRatio = x / width;
 
         // Bottom 30% has three zones: left button (0-30%), forward button (30-70%), right button (70-100%)
-        if (yRatio >= 0.7) {
+        // if (yRatio >= 0.7) {
             if (xRatio < 0.3) {
                 return 'left';
             } else if (xRatio >= 0.7) {
@@ -150,7 +150,7 @@ class SimpleMovement {
             } else {
                 return 'forward';
             }
-        }
+        // }
         
         // Top 70%: left half turns left, right half turns right
         return xRatio < 0.5 ? 'left' : 'right';
