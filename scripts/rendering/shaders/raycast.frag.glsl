@@ -3,6 +3,7 @@ uniform sampler2D uPlayerTexture;
 uniform sampler2D uPlayerBackTexture;
 uniform sampler2D uMirrorTexture;
 uniform sampler2D uFloorTexture;
+uniform sampler2D uMonsterTexture;
 uniform vec2 uMazeSize;
 uniform float uTriangleSize;
 uniform float uTriangleHeight;
@@ -10,6 +11,7 @@ uniform vec2 uResolution;
 uniform vec3 uPlayerPos;
 uniform float uPlayerYaw;
 uniform float uPlayerPitch;
+uniform vec3 uEnemyPos;
 uniform float uFov;
 uniform float uTime;
 
@@ -291,6 +293,59 @@ bool rayPlayerQuadIntersection(vec3 origin, vec3 dir, out float t, out vec3 hitP
 }
 
 // ================================================================
+// Ray-Monster Sprite Intersection
+// ================================================================
+
+bool rayMonsterSpriteIntersection(vec3 origin, vec3 dir, out float t, out vec3 hitPos, out vec2 uv) {
+    // Monster sprite is a billboard centered at enemy position
+    // Similar to player quad but always faces the camera
+    
+    float spriteWidth = 0.8;
+    float spriteHeight = 0.8;
+    float spriteYOffset = 0.4; // Center height above floor
+    
+    vec3 spriteCenter = vec3(uEnemyPos.x, FLOOR_Y + spriteYOffset, uEnemyPos.z);
+    
+    // Billboard normal always faces toward the ray origin (camera)
+    vec3 toCamera = normalize(origin - spriteCenter);
+    vec3 spriteNormal = normalize(vec3(toCamera.x, 0.0, toCamera.z)); // Keep horizontal
+    
+    // Right vector (perpendicular to normal in XZ plane)
+    vec3 spriteRight = normalize(vec3(spriteNormal.z, 0.0, -spriteNormal.x));
+    
+    // Up vector
+    vec3 spriteUp = vec3(0.0, 1.0, 0.0);
+    
+    // Ray-plane intersection
+    float denom = dot(dir, spriteNormal);
+    if (abs(denom) < EPSILON) return false; // Ray parallel to sprite
+    
+    t = dot(spriteCenter - origin, spriteNormal) / denom;
+    if (t < EPSILON) return false; // Sprite behind camera
+    
+    // Calculate hit position
+    hitPos = origin + dir * t;
+    
+    // Check if hit is within sprite bounds
+    vec3 localHit = hitPos - spriteCenter;
+    float u = dot(localHit, spriteRight);
+    float v = dot(localHit, spriteUp);
+    
+    float halfWidth = spriteWidth * 0.5;
+    float halfHeight = spriteHeight * 0.5;
+    
+    if (abs(u) > halfWidth || abs(v) > halfHeight) return false;
+    
+    // Convert to UV coordinates (0 to 1)
+    uv = vec2(
+        (u + halfWidth) / spriteWidth,
+        (v + halfHeight) / spriteHeight
+    );
+    
+    return true;
+}
+
+// ================================================================
 // Ray-Floor Intersection
 // ================================================================
 
@@ -545,7 +600,29 @@ vec3 castRay(vec3 origin, vec3 dir) {
             break;
         }
         
-        // FIRST: Check player quad (only for reflected rays, iteration > 0)
+        // FIRST: Check monster sprite (only for reflected rays, iteration > 0)
+        bool hitMonster = false;
+        vec4 monsterColor = vec4(0.0);
+        float monsterT = MAX_DIST;
+        
+        if (iteration > 0) {
+            vec3 monsterHit;
+            vec2 tempMonsterUV;
+            if (rayMonsterSpriteIntersection(rayOrigin, rayDir, monsterT, monsterHit, tempMonsterUV)) {
+                if (monsterT > EPSILON) {
+                    // Sample the texture to check alpha
+                    vec4 tempMonsterColor = texture2D(uMonsterTexture, tempMonsterUV);
+                    
+                    // Only count as hit if pixel is not fully transparent
+                    if (tempMonsterColor.a > 0.1) {
+                        monsterColor = tempMonsterColor;
+                        hitMonster = true;
+                    }
+                }
+            }
+        }
+        
+        // SECOND: Check player quad (only for reflected rays, iteration > 0)
         // Player quad spans multiple triangles, so check it independently
         bool hitPlayer = false;
         vec4 playerColor = vec4(0.0);
@@ -571,14 +648,28 @@ vec3 castRay(vec3 origin, vec3 dir) {
             }
         }
         
-        // If we hit the player, stop immediately (player spans triangles, so we don't need to check walls)
-        if (hitPlayer) {
+        // Check which sprite is closer (monster or player)
+        if (hitMonster && hitPlayer) {
+            if (monsterT < playerT) {
+                accumulatedColor += monsterColor.rgb * reflectivity;
+                hitSomething = true;
+                break;
+            } else {
+                accumulatedColor += playerColor.rgb * reflectivity;
+                hitSomething = true;
+                break;
+            }
+        } else if (hitMonster) {
+            accumulatedColor += monsterColor.rgb * reflectivity;
+            hitSomething = true;
+            break;
+        } else if (hitPlayer) {
             accumulatedColor += playerColor.rgb * reflectivity;
             hitSomething = true;
-            break; // Stop all further ray travel
+            break;
         }
         
-        // SECOND: Check triangle walls (only if we didn't hit player)
+        // THIRD: Check triangle walls (only if we didn't hit any sprites)
         // Get current triangle's walls
         vec4 cellData = getMazeCell(currentTriangle);
         float wallBits = cellData.g * 7.0;

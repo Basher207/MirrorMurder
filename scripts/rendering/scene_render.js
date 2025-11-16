@@ -290,7 +290,7 @@ class SceneRenderer {
         
         // Load monster texture (monster_v2.png)
         loader.load(
-            './assets/player/monster_v2.png',
+            './assets/monster_v2.png',
             (texture) => {
                 texture.minFilter = THREE.LinearFilter;
                 texture.magFilter = THREE.LinearFilter;
