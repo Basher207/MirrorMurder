@@ -52,6 +52,9 @@ class MovementSystem {
         } else if (this.currentPhase === MovementPhase.ROTATION) {
             this.handleRotationInput(key);
         }
+
+        const pos = gameState.getPlayer().getPosition();
+        console.log(`Player Position - Row: ${pos.row}, Col: ${pos.col}, Orientation: ${pos.orientation}`);
     }
     
     onKeyUp(event) {

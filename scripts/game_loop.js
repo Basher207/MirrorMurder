@@ -66,6 +66,25 @@ class GameLoop {
     
     // Update all game systems
     update(deltaTime) {
+        // Update player animation
+        if (this.playerAnimation) {
+            this.playerAnimation.update(deltaTime);
+        }
+        
+        // DO NOT sync world position to grid here - it creates a feedback loop
+        // The movement system updates grid position, which then updates world position
+        // Syncing world back to grid overwrites the movement system's changes
+        
+        // Only sync if we're doing free movement (not turn-based)
+        // For now, comment this out since we're using turn-based movement
+        /*
+        if (this.sceneRenderer && this.gameState) {
+            const worldPos = this.sceneRenderer.playerPos;
+            const yaw = this.sceneRenderer.playerYaw;
+            this.gameState.updatePlayerFromWorldPosition(worldPos, yaw);
+        }
+        */
+
         // Update game logic
         if (this.movement) {
             this.movement.update(deltaTime);

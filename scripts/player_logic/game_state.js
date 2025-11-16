@@ -2,6 +2,7 @@ import { TriangularGrid } from '../grid_system.js';
 import { Character } from './character.js';
 import { GridGraph } from './grid_graph.js';
 import { EYE_HEIGHT } from '../rendering/scene_render.js';
+import { TRIANGLE_SIZE, TRIANGLE_HEIGHT } from '../maze.js';
 
 class GameState {
     constructor() {
@@ -26,7 +27,7 @@ class GameState {
      * Initialize the grid
      * @param {TriangularGrid} grid - The triangular grid instance
      */
-    setGrid(grid) {
+    setGrid(grid, ) {
         this.grid = grid;
         
         // Build the graph from the grid
@@ -66,7 +67,71 @@ class GameState {
      * @param {string} orientation - 'left', 'right', or 'third'
      */
     setPlayerPosition(row, col, orientation) {
-        this.player.setPosition(row, col, orientation);
+        this.player.row = row;
+        this.player.col = col;
+        this.player.orientation = orientation;
+        
+        // Update camera position if scene renderer is available
+        if (this.sceneRenderer && this.grid) {
+            const worldPos = this.gridToWorldPosition(row, col, orientation);
+            const yaw = this.orientationToYaw(orientation, this.grid.getTriangle(row, col).pointsUp);
+            this.sceneRenderer.updateCameraPosition(worldPos, yaw);
+        }
+    }
+
+    /**
+     * Update player position from world coordinates
+     * @param {THREE.Vector3} worldPos - World position
+     * @param {number} yaw - Yaw angle in radians
+     */
+    updatePlayerFromWorldPosition(worldPos, yaw) {
+        if (!this.grid) return;
+        
+        // Convert world position back to grid coordinates
+        const row = Math.round(worldPos.z / TRIANGLE_HEIGHT);
+        const col = Math.round(worldPos.x / (TRIANGLE_SIZE * 0.5));
+        
+        // Clamp to valid grid bounds
+        const clampedRow = Math.max(0, Math.min(row, this.grid.getRowCount() - 1));
+        const clampedCol = Math.max(0, Math.min(col, this.grid.getRowLength(clampedRow) - 1));
+        
+        // Determine orientation from yaw angle
+        const triangle = this.grid.getTriangle(clampedRow, clampedCol);
+        if (!triangle) return;
+        
+        // Normalize yaw to 0-2π range
+        let normalizedYaw = yaw % (Math.PI * 2);
+        if (normalizedYaw < 0) normalizedYaw += Math.PI * 2;
+        
+        let orientation = 'left';
+        if (triangle.pointsUp) {
+            // Up-pointing triangle: third=0°, left=120°, right=240°
+            if (normalizedYaw < Math.PI / 3 || normalizedYaw >= Math.PI * 5/3) {
+                orientation = 'third'; // 0° ± 60° (330° to 30°)
+            } else if (normalizedYaw >= Math.PI / 3 && normalizedYaw < Math.PI) {
+                orientation = 'left'; // 120° ± 60° (60° to 180°)
+            } else {
+                orientation = 'right'; // 240° ± 60° (180° to 300°)
+            }
+        } else {
+            // Down-pointing triangle: left=60°, third=180°, right=300°
+            if (normalizedYaw < Math.PI / 6 || normalizedYaw >= Math.PI * 11/6) {
+                orientation = 'right'; // 300° ± 30° (285° to 15°) wraps around
+            } else if (normalizedYaw >= Math.PI / 6 && normalizedYaw < Math.PI * 7/6) {
+                orientation = 'left'; // 60° ± 60° (0° to 120°) or third 180° ± 60° (120° to 240°)
+                // Need to distinguish between left (60°) and third (180°)
+                if (normalizedYaw >= Math.PI * 2/3) {
+                    orientation = 'third';
+                }
+            } else {
+                orientation = 'right'; // 300° ± 60° (240° to 360°)
+            }
+        }
+        
+        // Update player position
+        this.player.row = clampedRow;
+        this.player.col = clampedCol;
+        this.player.orientation = orientation;
     }
 
     /**
@@ -107,9 +172,6 @@ class GameState {
      * @returns {THREE.Vector3} World position
      */
     gridToWorldPosition(row, col, orientation) {
-        const TRIANGLE_SIZE = 1.0;
-        const TRIANGLE_HEIGHT = Math.sqrt(3) / 2;
-        
         const x = col * TRIANGLE_SIZE * 0.5 + TRIANGLE_SIZE / 2;
         const z = row * TRIANGLE_HEIGHT + TRIANGLE_HEIGHT / 2;
         const y = EYE_HEIGHT; // Eye height
@@ -127,29 +189,29 @@ class GameState {
         let angle = 0;
         
         if (pointsUp) {
-            // Up-pointing triangle - subtract 120 degrees from each
+            // Up-pointing triangle
             switch (orientation) {
                 case 'left':
-                    angle = (120) * Math.PI / 180; // 90 degrees
+                    angle = (120) * Math.PI / 180; // 120 degrees
                     break;
                 case 'right':
                     angle = (240) * Math.PI / 180; // 240 degrees
                     break;
                 case 'third': // Bottom
-                    angle = (0) * Math.PI / 180; // -30 degrees (330 degrees)
+                    angle = (0) * Math.PI / 180; // 0 degrees
                     break;
-            } 1 
+            } 
         } else {
-            // Down-pointing triangle - add 150 degrees to each
+            // Down-pointing triangle
             switch (orientation) {
                 case 'left':
-                    angle = (60) * Math.PI / 180; // 180 degrees
+                    angle = (60) * Math.PI / 180; // 60 degrees
                     break;
                 case 'right':
                     angle = (300) * Math.PI / 180; // 300 degrees
                     break;
                 case 'third': // Top
-                    angle = (180) * Math.PI / 180; // 420 degrees (60 degrees)
+                    angle = (180) * Math.PI / 180; // 180 degrees
                     break;
             }
         }

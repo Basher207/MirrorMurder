@@ -243,7 +243,7 @@ class MazeMinimap {
 
         // Draw player (pink dot with direction indicator)
         if (player) {
-            // Always use grid position (same as blue circle logic that worked)
+            // Use synchronized grid position (updated from world coordinates in game_state)
             const playerX = offsetX + (player.col * triangleWidth / 2) + triangleWidth / 2;
             const playerY = offsetY + (player.row * rowHeight) + triangleHeight / 2;
             
@@ -258,34 +258,42 @@ class MazeMinimap {
             ctx.lineWidth = 1.5;
             ctx.stroke();
             
-            // Draw direction indicator
+            // Draw direction indicator using the passed-in yaw (most accurate)
             if (playerYaw !== null && playerYaw !== undefined) {
-                // Use the actual yaw angle from the renderer
                 ctx.strokeStyle = '#ff1493';
                 ctx.lineWidth = 2;
                 ctx.beginPath();
                 ctx.moveTo(playerX, playerY);
                 const dirLength = 15;
-                const dirX = playerX - Math.sin(playerYaw) * dirLength;
-                const dirY = playerY + Math.cos(playerYaw) * dirLength;
+                
+                // Convert 3D yaw to 2D minimap angle
+                // 3D coordinate system: X = right, Z = forward (into screen from top-down view)
+                // Canvas coordinate system: X = right, Y = down
+                // 3D yaw: 0° = +Z (down on minimap), 90° = +X (right), 180° = -Z (up), 270° = -X (left)
+                // Canvas angle: 0° = right (+X), 90° = down (+Y), 180° = left, 270° = up
+                // Conversion: canvas_angle = yaw + 90° (to rotate coordinate system)
+                const minimapAngle = playerYaw + Math.PI / 2;
+                const dirX = playerX + Math.cos(minimapAngle) * dirLength;
+                const dirY = playerY + Math.sin(minimapAngle) * dirLength;
+                
                 ctx.lineTo(dirX, dirY);
                 ctx.stroke();
                 
                 // Draw arrowhead
                 const arrowHeadSize = 6;
-                const headAngle1 = playerYaw - Math.PI * 5 / 6;
-                const headAngle2 = playerYaw + Math.PI * 5 / 6;
+                const headAngle1 = minimapAngle + Math.PI * 5 / 6;
+                const headAngle2 = minimapAngle - Math.PI * 5 / 6;
                 
                 ctx.fillStyle = '#ff1493';
                 ctx.beginPath();
                 ctx.moveTo(dirX, dirY);
                 ctx.lineTo(
-                    dirX - Math.sin(headAngle1) * arrowHeadSize + Math.cos(playerYaw) * arrowHeadSize,
-                    dirY + Math.cos(headAngle1) * arrowHeadSize + Math.sin(playerYaw) * arrowHeadSize
+                    dirX + Math.cos(headAngle1) * arrowHeadSize,
+                    dirY + Math.sin(headAngle1) * arrowHeadSize
                 );
                 ctx.lineTo(
-                    dirX - Math.sin(headAngle2) * arrowHeadSize + Math.cos(playerYaw) * arrowHeadSize,
-                    dirY + Math.cos(headAngle2) * arrowHeadSize + Math.sin(playerYaw) * arrowHeadSize
+                    dirX + Math.cos(headAngle2) * arrowHeadSize,
+                    dirY + Math.sin(headAngle2) * arrowHeadSize
                 );
                 ctx.closePath();
                 ctx.fill();
@@ -298,13 +306,12 @@ class MazeMinimap {
             }
         }
 
-        // Draw enemy (red square with arrow) - unchanged
+        // Draw enemy (red square with arrow)
         if (enemy) {
             const enemyX = offsetX + (enemy.col * triangleWidth / 2) + triangleWidth / 2;
             const enemyY = offsetY + (enemy.row * rowHeight) + triangleHeight / 2;
             
             const squareSize = 10;
-            // Draw the square
             ctx.fillStyle = '#ff0000';
             ctx.fillRect(
                 enemyX - squareSize / 2,
@@ -313,7 +320,6 @@ class MazeMinimap {
                 squareSize
             );
             
-            // Draw a border around the square
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 1.5;
             ctx.strokeRect(
@@ -323,7 +329,6 @@ class MazeMinimap {
                 squareSize
             );
             
-            // Draw orientation arrow
             const enemyTriangle = this.grid.getTriangle(enemy.row, enemy.col);
             if (enemyTriangle) {
                 this.drawOrientationArrow(ctx, enemyX, enemyY, enemy.orientation, enemyTriangle.pointsUp, '#ff0000', triangleWidth, triangleHeight);
@@ -343,58 +348,55 @@ class MazeMinimap {
      * @param {number} triangleHeight - Height of the triangle
      */
     drawOrientationArrow(ctx, x, y, orientation, pointsUp, color, triangleWidth, triangleHeight) {
-        const arrowLength = Math.min(triangleWidth, triangleHeight) * 0.25;
-        const arrowHeadSize = arrowLength * 0.4;
-        
         ctx.strokeStyle = color;
         ctx.fillStyle = color;
         ctx.lineWidth = 2;
         
+        const arrowLength = Math.min(triangleWidth, triangleHeight) * 0.4;
+        const arrowHeadSize = arrowLength * 0.4;
+        
         let angle = 0;
         
-        // Calculate arrow angle based on orientation and triangle type
-        // Matching game_state.js angles exactly
         if (pointsUp) {
             // Up-pointing triangle
+            // Canvas Y increases downward, so angles are flipped
             switch (orientation) {
                 case 'left':
-                    angle = 120 * Math.PI / 180; // 120 degrees
+                    angle = Math.PI * 2 / 3; // 120 degrees - point to upper-left
                     break;
                 case 'right':
-                    angle = 240 * Math.PI / 180; // 240 degrees
+                    angle = Math.PI / 3; // 60 degrees - point to upper-right
                     break;
-                case 'third': // Bottom
-                    angle = 0 * Math.PI / 180; // 0 degrees
+                case 'third': // Bottom edge
+                    angle = Math.PI / 2; // 90 degrees - point down
                     break;
             }
         } else {
             // Down-pointing triangle
             switch (orientation) {
                 case 'left':
-                    angle = 60 * Math.PI / 180; // 60 degrees
+                    angle = Math.PI * 4 / 3; // 240 degrees - point to lower-left
                     break;
                 case 'right':
-                    angle = 300 * Math.PI / 180; // 300 degrees
+                    angle = Math.PI * 5 / 3; // 300 degrees - point to lower-right
                     break;
-                case 'third': // Top
-                    angle = 180 * Math.PI / 180; // 180 degrees
+                case 'third': // Top edge
+                    angle = -Math.PI / 2; // 270 degrees (or -90) - point up
                     break;
             }
         }
         
-        // Calculate arrow end point
-        const endX = x + Math.cos(angle) * arrowLength;
-        const endY = y + Math.sin(angle) * arrowLength;
-        
         // Draw arrow line
         ctx.beginPath();
         ctx.moveTo(x, y);
+        const endX = x + Math.cos(angle) * arrowLength;
+        const endY = y + Math.sin(angle) * arrowLength;
         ctx.lineTo(endX, endY);
         ctx.stroke();
         
         // Draw arrowhead
-        const headAngle1 = angle - Math.PI * 5 / 6;
-        const headAngle2 = angle + Math.PI * 5 / 6;
+        const headAngle1 = angle + Math.PI * 5 / 6;
+        const headAngle2 = angle - Math.PI * 5 / 6;
         
         ctx.beginPath();
         ctx.moveTo(endX, endY);

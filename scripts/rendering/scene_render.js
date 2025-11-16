@@ -10,6 +10,7 @@ import {
     encodeToTexture 
 } from '../maze.js';
 import { PlayerAnimation } from './player.js';
+import gameState from '../player_logic/game_state.js';
 
 // Constants
 const EYE_HEIGHT = 0.8; // Player eye height in world units
@@ -20,7 +21,6 @@ class SceneRenderer {
         this.isReady = false;
         
         // Store render dimensions
-        // this.renderWidth = window.innerWidth;
         this.renderScale = 1.0;
         this.renderHeight = window.innerHeight * this.renderScale;
         this.renderWidth = window.innerWidth * this.renderScale;
@@ -30,18 +30,17 @@ class SceneRenderer {
             canvas: canvas,
             antialias: false 
         });
-        // Use device pixel ratio for sharp rendering on high-DPI displays
         this.renderer.setPixelRatio(1);
-        // Third argument `false` keeps the CSS size (100% viewport) untouched
         this.renderer.setSize(this.innerWidth, this.innerHeight, false);
         
         // Create scene and camera (camera just for the fullscreen quad)
         this.scene = new THREE.Scene();
         this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
         
-        // Player position and orientation
-        this.playerPos = new THREE.Vector3(5, EYE_HEIGHT, 5); // Y is eye height
-        this.playerYaw = Math.PI / 2; // Rotation around Y axis (radians)
+        // Player position and orientation - START AT GRID (0,0)
+        // Grid (0,0) with orientation 'left' should be the starting position
+        this.playerPos = new THREE.Vector3(0.425, EYE_HEIGHT, 0.367); // Starting at grid (0,0)
+        this.playerYaw = Math.PI * 2 / 3; // 120 degrees for 'left' orientation on up-pointing triangle
         this.playerPitch = 0; // Look up/down (radians)
         
         // Camera settings
@@ -67,6 +66,10 @@ class SceneRenderer {
         // Load floor texture
         this.floorTexture = null;
         this.loadFloorTexture();
+        
+        // Load monster texture
+        this.monsterTexture = null;
+        this.loadMonsterTexture();
         
         // Create fullscreen shader (async)
         this.init();
@@ -282,6 +285,33 @@ class SceneRenderer {
         );
     }
     
+    loadMonsterTexture() {
+        const loader = new THREE.TextureLoader();
+        
+        // Load monster texture (monster_v2.png)
+        loader.load(
+            './assets/player/monster_v2.png',
+            (texture) => {
+                texture.minFilter = THREE.LinearFilter;
+                texture.magFilter = THREE.LinearFilter;
+                texture.wrapS = THREE.ClampToEdgeWrapping;
+                texture.wrapT = THREE.ClampToEdgeWrapping;
+                this.monsterTexture = texture;
+                
+                // Update uniform if shader is already loaded
+                if (this.fullscreenQuad) {
+                    this.fullscreenQuad.material.uniforms.uMonsterTexture.value = texture;
+                }
+                
+                console.log('✅ Monster texture loaded');
+            },
+            undefined,
+            (error) => {
+                console.error('❌ Failed to load monster texture:', error);
+            }
+        );
+    }
+    
     async createFullscreenShader() {
         // Load shader files
         const vertexShader = await this.loadShader('./scripts/rendering/shaders/raycast.vert.glsl');
@@ -314,6 +344,7 @@ class SceneRenderer {
                 uPlayerBackTexture: { value: this.playerBackTexture },
                 uMirrorTexture: { value: this.mirrorTexture },
                 uFloorTexture: { value: this.floorTexture },
+                uMonsterTexture: { value: this.monsterTexture },
                 uMazeSize: { value: new THREE.Vector2(mazeWidth, mazeHeight) },
                 uTriangleSize: { value: TRIANGLE_SIZE },
                 uTriangleHeight: { value: TRIANGLE_HEIGHT },
@@ -322,6 +353,7 @@ class SceneRenderer {
                 uPlayerPos: { value: this.playerPos },
                 uPlayerYaw: { value: this.playerYaw },
                 uPlayerPitch: { value: this.playerPitch },
+                uEnemyPos: { value: new THREE.Vector3(0, EYE_HEIGHT, 0) },
                 uFov: { value: this.fov },
                 uTime: { value: 0 }
             },
@@ -363,6 +395,13 @@ class SceneRenderer {
         uniforms.uPlayerPitch.value = this.playerPitch;
         uniforms.uTime.value += deltaTime;
         
+        // Update enemy position from game state
+        if (this.grid) {
+            const enemy = gameState.getEnemy();
+            const enemyWorldPos = this.gridToWorldPosition(enemy.row, enemy.col);
+            uniforms.uEnemyPos.value.set(enemyWorldPos.x, enemyWorldPos.y, enemyWorldPos.z);
+        }
+        
         // Update player texture with current animation frame
         const currentFrame = this.playerAnimation.getCurrentFrame();
         if (currentFrame) {
@@ -397,6 +436,15 @@ class SceneRenderer {
         dir = dir.applyAxisAngle(new THREE.Vector3(1, 0, 0), this.playerPitch);
         dir = dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.playerYaw);
         return dir;
+    }
+    
+    // Convert grid coordinates to world coordinates
+    gridToWorldPosition(row, col) {
+        const x = col * TRIANGLE_SIZE * 0.5 + TRIANGLE_SIZE / 2;
+        const z = row * TRIANGLE_HEIGHT + TRIANGLE_HEIGHT / 2;
+        const y = EYE_HEIGHT; // Eye height
+        
+        return { x, y, z };
     }
 }
 
