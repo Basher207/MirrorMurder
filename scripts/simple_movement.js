@@ -25,6 +25,13 @@ class SimpleMovement {
         this.moveSpeed = 0.8; // Units per second
         this.sprintMultiplier = 2.0;
         this.mouseSensitivity = 0.002; // Radians per pixel
+
+        // Touch/click control state
+        this.turnSpeedTouch = 2.0; // Radians per second for on-screen turn
+        this.pointerActions = new Map(); // pointerId -> 'forward' | 'left' | 'right'
+        this.touchMoveForward = false;
+        this.touchTurnLeft = false;
+        this.touchTurnRight = false;
         
         // Player state (will be synced with scene renderer)
         this.position = new THREE.Vector3(5, 0.8, 5);
@@ -47,9 +54,14 @@ class SimpleMovement {
         window.addEventListener('keyup', (e) => this.onKeyUp(e));
         
         // Mouse lock listeners
-        document.addEventListener('click', () => this.requestPointerLock());
         document.addEventListener('pointerlockchange', () => this.onPointerLockChange());
         document.addEventListener('mousemove', (e) => this.onMouseMove(e));
+
+        // Pointer/touch controls
+        document.addEventListener('pointerdown', (e) => this.onPointerDown(e));
+        document.addEventListener('pointerup', (e) => this.onPointerUp(e));
+        document.addEventListener('pointercancel', (e) => this.onPointerUp(e));
+        document.addEventListener('pointerleave', (e) => this.onPointerUp(e));
     }
     
     onKeyDown(event) {
@@ -98,6 +110,66 @@ class SimpleMovement {
         // this.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.pitch));
     }
     
+    // Pointer/touch screen controls
+    onPointerDown(event) {
+        // Desktop: first click requests pointer lock for mouse look
+        if (event.pointerType === 'mouse') {
+            if (!this.mouseLocked) {
+                this.requestPointerLock();
+            }
+            return;
+        }
+
+        // Touch: interpret screen zones
+        event.preventDefault();
+        const action = this.getActionFromPosition(event.clientX, event.clientY);
+        if (!action) return;
+        this.pointerActions.set(event.pointerId, action);
+        this.updateTouchActionStates();
+    }
+
+    onPointerUp(event) {
+        if (this.pointerActions.has(event.pointerId)) {
+            this.pointerActions.delete(event.pointerId);
+            this.updateTouchActionStates();
+        }
+    }
+
+    getActionFromPosition(x, y) {
+        const width = window.innerWidth || 1;
+        const height = window.innerHeight || 1;
+        const yRatio = y / height;
+        const xRatio = x / width;
+
+        // Bottom 30% has three zones: left button (0-30%), forward button (30-70%), right button (70-100%)
+        if (yRatio >= 0.7) {
+            if (xRatio < 0.3) {
+                return 'left';
+            } else if (xRatio >= 0.7) {
+                return 'right';
+            } else {
+                return 'forward';
+            }
+        }
+        
+        // Top 70%: left half turns left, right half turns right
+        return xRatio < 0.5 ? 'left' : 'right';
+    }
+
+    updateTouchActionStates() {
+        let moveForward = false;
+        let turnLeft = false;
+        let turnRight = false;
+        for (const action of this.pointerActions.values()) {
+            if (action === 'forward') moveForward = true;
+            if (action === 'left') turnLeft = true;
+            if (action === 'right') turnRight = true;
+        }
+        this.touchMoveForward = moveForward;
+        this.touchTurnLeft = turnLeft;
+        this.touchTurnRight = turnRight;
+    }
+    
     // Set reference to scene renderer
     setSceneRenderer(sceneRenderer) {
         this.sceneRenderer = sceneRenderer;
@@ -136,7 +208,11 @@ class SimpleMovement {
     
     // Update movement (called every frame)
     update(deltaTime) {
-        if (!this.mouseLocked) return;
+        // Apply on-screen turning (works even without pointer lock)
+        const turnDir = (this.touchTurnLeft ? 1 : 0) + (this.touchTurnRight ? -1 : 0);
+        if (turnDir !== 0) {
+            this.yaw += turnDir * this.turnSpeedTouch * deltaTime;
+        }
         
         // Calculate movement direction based on input (in local space)
         const moveDir = new THREE.Vector3(0, 0, 0);
@@ -145,6 +221,7 @@ class SimpleMovement {
         if (this.keys.s) moveDir.z -= 1;  // Backward
         if (this.keys.a) moveDir.x -= 1;  // Left
         if (this.keys.d) moveDir.x += 1;  // Right
+        if (this.touchMoveForward) moveDir.z += 1; // Touch/click forward (bottom 30%)
         
         // Normalize diagonal movement
         if (moveDir.lengthSq() > 0) {

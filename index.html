@@ -17,12 +17,19 @@
             overflow: hidden;
             background: #000;
             font-family: 'Courier New', monospace;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
         }
 
         #gameCanvas {
             display: block;
             width: 100%;
             height: 100%;
+            touch-action: none;
         }
         
         #minimapContainer {

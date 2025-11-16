@@ -16,20 +16,21 @@ class SceneRenderer {
         this.canvas = canvas;
         this.isReady = false;
         
-        // Render at full resolution
+        // Store render dimensions
+        // this.renderWidth = window.innerWidth;
         this.renderScale = 1.0;
-        this.renderWidth = window.innerWidth * this.renderScale;
         this.renderHeight = window.innerHeight * this.renderScale;
+        this.renderWidth = window.innerWidth * this.renderScale;
         
         // Create Three.js renderer
         this.renderer = new THREE.WebGLRenderer({ 
             canvas: canvas,
             antialias: false 
         });
-        // Use a fixed pixel ratio and a smaller drawing buffer for speed
+        // Use device pixel ratio for sharp rendering on high-DPI displays
         this.renderer.setPixelRatio(1);
         // Third argument `false` keeps the CSS size (100% viewport) untouched
-        this.renderer.setSize(this.renderWidth, this.renderHeight, false);
+        this.renderer.setSize(this.innerWidth, this.innerHeight, false);
         
         // Create scene and camera (camera just for the fullscreen quad)
         this.scene = new THREE.Scene();
@@ -374,12 +375,11 @@ class SceneRenderer {
     
     // Handle window resize
     handleResize(width, height) {
-        // Recompute internal render size based on scale
         this.renderWidth = width * this.renderScale;
         this.renderHeight = height * this.renderScale;
-        this.renderer.setSize(this.renderWidth, this.renderHeight, false);
+        this.renderer.setSize(width, height, false);
         if (this.isReady) {
-            this.fullscreenQuad.material.uniforms.uResolution.value.set(this.renderWidth, this.renderHeight);
+            this.fullscreenQuad.material.uniforms.uResolution.value.set(width, height);
         }
     }
     

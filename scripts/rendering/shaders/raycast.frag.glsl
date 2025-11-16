@@ -695,8 +695,8 @@ vec3 castRay(vec3 origin, vec3 dir) {
                 
                 // Unique parameters for each mirror
                 float waveOffset = mirrorHash1 * 1000.283;
-                float waveScale = 0.15 + mirrorHash2 * 0.35;
-                float waveFrequency = 1.2 + mirrorHash3 * 4.0;
+                float waveScale = 0.0 + mirrorHash2 * 0.35;
+                float waveFrequency = 0.0 + mirrorHash3 * 9.0;
                 
                 // waveOffset = 0.0;
                 // waveScale = 0.0;
